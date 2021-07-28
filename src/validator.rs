@@ -26,17 +26,24 @@ pub fn validate_resource(schema: &JSONSchema, r: &Value) -> Result<(), Vec<Valid
 #[cfg(test)]
 mod tests {
     use jsonschema::JSONSchema;
-    use serde_json::Value;
+    use serde_json::{json, Value};
     use std::fs::File;
     use crate::validator::validate_resource;
 
     #[test]
     fn test_validation() {
-        let val: Value = serde_json::from_reader(File::open("test_resources/fhir.schema-4.0.json").unwrap()).unwrap();
+        let val: Value = serde_json::from_reader(File::open("test_data/fhir.schema-4.0.json").unwrap()).unwrap();
         let schema = JSONSchema::compile(&val).unwrap();
 
-        let patient_resource: Value = serde_json::from_reader(File::open("test_resources/resources/patient-example-a.json").unwrap()).unwrap();
+        let patient_resource: Value = serde_json::from_reader(File::open("test_data/resources/patient-example-a.json").unwrap()).unwrap();
+        let start = std::time::Instant::now();
         let result = validate_resource(&schema, &patient_resource);
+        let end = std::time::Instant::now();
         assert!(result.is_ok());
+        println!("time taken to validate: {}", end.duration_since(start).as_millis());
+
+        let patient_resource = json!({"id": 1});
+        let result = validate_resource(&schema, &patient_resource);
+        assert!(result.is_err());
     }
 }
