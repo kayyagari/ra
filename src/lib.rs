@@ -12,6 +12,7 @@ mod context;
 mod errors;
 mod barn;
 mod utils;
+mod scanner;
 
 fn configure_log4rs() {
     let stdout = ConsoleAppender::builder()

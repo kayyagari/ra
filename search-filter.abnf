@@ -1,0 +1,15 @@
+;validated using https://tools.ietf.org/tools/bap/
+filter        = paramExp / logExp / ("not") "(" filter ")"
+logExp        = filter [("and" / "or" filter)]
+paramExp      = paramPath SP compareOp SP compValue
+compareOp     = ("eq" / "ne" / "co" / "sw" / "ew" / "gt" / "lt" / "ge" / "le" / "ap" / "sa" / "eb" / "pr" / "po" / "ss" / "sb" / "in" / "ni" / "re")
+compValue     = string / numberOrDate / token
+string        = quotation-mark 1*char quotation-mark
+token         = 1*ALPHA; any sequence of non-whitespace characters (by Unicode rules) except "]" and ")"
+paramPath     = paramName [(("[" filter "]") "." paramPath)]
+paramName     = nameCharStart 1*nameChar
+nameCharStart = "_" / ALPHA
+nameChar      = "_" / "-" / DIGIT / ALPHA
+numberOrDate  = DIGIT *dateChar
+dateChar      = DIGIT / "T" / "-" / "." / "+"
+quotation-mark = %x22 ; "
