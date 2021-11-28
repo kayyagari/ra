@@ -29,10 +29,14 @@ mod tests {
     use serde_json::{json, Value};
     use std::fs::File;
     use crate::validator::validate_resource;
+    use crate::res_schema::parse_res_def;
+    use crate::configure_log4rs;
 
     #[test]
     fn test_validation() {
+        configure_log4rs();
         let val: Value = serde_json::from_reader(File::open("test_data/fhir.schema-4.0.json").unwrap()).unwrap();
+        parse_res_def(&val);
         let schema = JSONSchema::compile(&val).unwrap();
 
         let patient_resource: Value = serde_json::from_reader(File::open("test_data/resources/patient-example-a.json").unwrap()).unwrap();
