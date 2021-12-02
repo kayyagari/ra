@@ -5,27 +5,27 @@ use std::fmt::{Display, Formatter};
 use std::error::Error;
 
 lazy_static! {
- static ref operators: HashMap<&'static str, Operator> = {
+ pub static ref operators: HashMap<&'static str, ComparisonOperator> = {
         let mut ops = HashMap::new();
-        ops.insert("eq", Operator::EQ);
-        ops.insert("ne", Operator::NE);
-        ops.insert("co", Operator::CO);
-        ops.insert("sw", Operator::SW);
-        ops.insert("ew", Operator::EW);
-        ops.insert("gt", Operator::GT);
-        ops.insert("lt", Operator::LT);
-        ops.insert("ge", Operator::GE);
-        ops.insert("le", Operator::LE);
-        ops.insert("ap", Operator::AP);
-        ops.insert("sa", Operator::SA);
-        ops.insert("eb", Operator::EB);
-        ops.insert("pr", Operator::PR);
-        ops.insert("po", Operator::PO);
-        ops.insert("ss", Operator::SS);
-        ops.insert("sb", Operator::SB);
-        ops.insert("in", Operator::IN);
-        ops.insert("ni", Operator::NI);
-        ops.insert("re", Operator::RE);
+        ops.insert("eq", ComparisonOperator::EQ);
+        ops.insert("ne", ComparisonOperator::NE);
+        ops.insert("co", ComparisonOperator::CO);
+        ops.insert("sw", ComparisonOperator::SW);
+        ops.insert("ew", ComparisonOperator::EW);
+        ops.insert("gt", ComparisonOperator::GT);
+        ops.insert("lt", ComparisonOperator::LT);
+        ops.insert("ge", ComparisonOperator::GE);
+        ops.insert("le", ComparisonOperator::LE);
+        ops.insert("ap", ComparisonOperator::AP);
+        ops.insert("sa", ComparisonOperator::SA);
+        ops.insert("eb", ComparisonOperator::EB);
+        ops.insert("pr", ComparisonOperator::PR);
+        ops.insert("po", ComparisonOperator::PO);
+        ops.insert("ss", ComparisonOperator::SS);
+        ops.insert("sb", ComparisonOperator::SB);
+        ops.insert("in", ComparisonOperator::IN);
+        ops.insert("ni", ComparisonOperator::NI);
+        ops.insert("re", ComparisonOperator::RE);
         ops
     };
 }
@@ -40,7 +40,7 @@ struct Scanner {
 }
 
 #[derive(Debug)]
-pub enum Operator {
+pub enum ComparisonOperator {
     EQ,
     NE,
     CO,
@@ -73,7 +73,7 @@ pub struct Token {
     pub ttype: TokenType,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenType {
     LEFT_PAREN,
     RIGHT_PAREN,
@@ -81,8 +81,8 @@ pub enum TokenType {
     RIGHT_BRACKET,
     LITERAL,
     IDENTIFIER,
-    OPERATOR,
-    FILTER,
+    COMPARISON_OPERATOR,
+    LOGIC_OPERATOR,
     IDENTIFIER_PATH,
     EOF
 }
@@ -120,6 +120,46 @@ impl Display for ScanError {
             f.write_str(e.as_str());
         }
         Ok(())
+    }
+}
+
+impl Display for TokenType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut s = "";
+        match self {
+            TokenType::COMPARISON_OPERATOR => {
+                s = "comparison operator";
+            },
+            TokenType::LITERAL => {
+                s = "literal";
+            },
+            TokenType::IDENTIFIER => {
+                s = "identifier";
+            },
+            TokenType::RIGHT_BRACKET => {
+                s = "]";
+            },
+            TokenType::LEFT_BRACKET => {
+                s = "[";
+            },
+            TokenType::RIGHT_PAREN => {
+                s = ")";
+            },
+            TokenType::LEFT_PAREN => {
+                s = "(";
+            },
+            TokenType::LOGIC_OPERATOR => {
+                s = "logical operator";
+            },
+            TokenType::IDENTIFIER_PATH => {
+                s = "identifier path";
+            },
+            TokenType::EOF => {
+                s = "EOF";
+            }
+        }
+
+        f.write_str(s)
     }
 }
 
@@ -183,12 +223,12 @@ impl Scanner {
         match val.to_lowercase().as_str() {
             "and" | "not" | "or" => {
                 val = val.to_lowercase();
-                tt = TokenType::FILTER;
+                tt = TokenType::LOGIC_OPERATOR;
             }
             s => {
                 if operators.get(s).is_some() {
                     val = val.to_lowercase();
-                    tt = TokenType::OPERATOR;
+                    tt = TokenType::COMPARISON_OPERATOR;
                 }
                 else if s == "false" || s == "true" {
                     val = val.to_lowercase();
