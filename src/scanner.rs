@@ -1,11 +1,10 @@
-use std::str::Chars;
 use std::collections::HashMap;
 use lazy_static::lazy_static;
 use std::fmt::{Display, Formatter};
 use std::error::Error;
 
 lazy_static! {
- pub static ref operators: HashMap<&'static str, ComparisonOperator> = {
+ pub static ref OPERATORS: HashMap<&'static str, ComparisonOperator> = {
         let mut ops = HashMap::new();
         ops.insert("eq", ComparisonOperator::EQ);
         ops.insert("ne", ComparisonOperator::NE);
@@ -74,6 +73,7 @@ pub struct Token {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
+#[allow(non_camel_case_types)]
 pub enum TokenType {
     LEFT_PAREN,
     RIGHT_PAREN,
@@ -87,7 +87,7 @@ pub enum TokenType {
     EOF
 }
 
-pub fn scanTokens(filter: &String) -> Result<Vec<Token>, ScanError> {
+pub fn scan_tokens(filter: &String) -> Result<Vec<Token>, ScanError> {
     // this copying is unavoidable because no other format gives the
     // ability to index into the input string
     let chars: Vec<char> = filter.chars().collect();
@@ -117,7 +117,7 @@ impl Error for ScanError{
 impl Display for ScanError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for e in &self.errors {
-            f.write_str(e.as_str());
+            f.write_str(e.as_str())?;
         }
         Ok(())
     }
@@ -125,7 +125,7 @@ impl Display for ScanError {
 
 impl Display for TokenType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut s = "";
+        let s;
         match self {
             TokenType::COMPARISON_OPERATOR => {
                 s = "comparison operator";
@@ -167,14 +167,14 @@ impl Scanner {
     fn scan(&mut self, tokens: &mut Vec<Token>) {
         while !self.is_at_end() {
             self.start = self.current;
-            let t = self.scanToken();
+            let t = self.scan_token();
             if t.is_some() {
                 tokens.push(t.unwrap());
             }
         }
     }
 
-    fn scanToken(&mut self) -> Option<Token> {
+    fn scan_token(&mut self) -> Option<Token> {
         let c = self.advance();
         let mut t: Option<Token> = Option::None;
         match c {
@@ -226,7 +226,7 @@ impl Scanner {
                 tt = TokenType::LOGIC_OPERATOR;
             }
             s => {
-                if operators.get(s).is_some() {
+                if OPERATORS.get(s).is_some() {
                     val = val.to_lowercase();
                     tt = TokenType::COMPARISON_OPERATOR;
                 }
@@ -321,7 +321,7 @@ impl Scanner {
 
 #[cfg(test)]
 mod tests {
-    use crate::scanner::scanTokens;
+    use crate::scanner::scan_tokens;
     use std::process::Command;
 
     struct FilterCandidate {
@@ -347,7 +347,7 @@ mod tests {
 
         println!("begin scanning");
         for c in &candidates {
-            let r = scanTokens(&c.filter);
+            let r = scan_tokens(&c.filter);
             if r.is_ok() {
                 let tokens = r.as_ref().unwrap();
                 println!("{:?}", &tokens);
@@ -379,13 +379,13 @@ mod tests {
 
         let n = 2000;
         println!("testing scanner with {} generated filters", n);
-        for i in (1..n) {
+        for _ in 1..n {
             let out = abnfgen.output().unwrap();
             let filter = String::from_utf8(out.stdout).unwrap();
             let filter = filter.replace("\n", "");
             let filter = filter.replace("\r", "");
             //println!("scanning: {}", &filter);
-            let r = scanTokens(&filter);
+            let r = scan_tokens(&filter);
             if r.is_err() {
                 let se = r.err().unwrap();
                 println!("{:?}\n{}", &se, filter);

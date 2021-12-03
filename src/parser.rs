@@ -6,11 +6,11 @@ use crate::parser::ExprType::*;
 
 struct Parser {
     tokens: Vec<Token>,
-    current: usize,
-    root: Option<Box<dyn Expr>>
+    current: usize
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
 pub enum ExprType {
     SIMPLE,
     CONDITIONAL,
@@ -136,7 +136,7 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Box<dyn Expr>, ParseError> {
     let eof = Token{ val: String::from(""), ttype: TokenType::EOF};
     tokens.push(eof);
 
-    let mut p = Parser{ tokens, current: 0, root: Option::None};
+    let mut p = Parser{ tokens, current: 0};
 
     p.parse()
 }
@@ -153,12 +153,12 @@ impl Parser {
                 LEFT_PAREN => {
                     self.advance();
                     e = Option::Some(self.parse()?);
-                    self.consume(TokenType::RIGHT_PAREN);
+                    self.consume(TokenType::RIGHT_PAREN)?;
                 },
                 LEFT_BRACKET => {
                     self.advance();
                     e = Option::Some(self.parse()?);
-                    self.consume(TokenType::RIGHT_BRACKET);
+                    self.consume(TokenType::RIGHT_BRACKET)?;
                 },
                 LOGIC_OPERATOR => {
                     let op = t.val.as_str();
@@ -188,7 +188,7 @@ impl Parser {
                         }
                     }
                 },
-                t => {
+                _ => {
                     //return Err(ParseError{msg: format!("invalid token, type {}", t)});
                     break;
                 }
@@ -206,16 +206,16 @@ impl Parser {
         let mut cond_expr: Option<Box<dyn Expr>> = Option::None;
         let mut id_path: Option<String> = Option::None;
         if self.peek().ttype == TokenType::LEFT_BRACKET { // there is a conditional expression
-            self.consume(TokenType::LEFT_BRACKET);
+            self.consume(TokenType::LEFT_BRACKET)?;
             let ce = self.parse()?;
-            self.consume(TokenType::RIGHT_BRACKET);
+            self.consume(TokenType::RIGHT_BRACKET)?;
             let id_path_token = self.consume(TokenType::IDENTIFIER_PATH)?;
             id_path = Option::Some(id_path_token.val.clone());
             cond_expr = Some(ce);
         }
 
         let op = self.consume(COMPARISON_OPERATOR)?;
-        let op = operators.get(op.val.as_str()).unwrap();
+        let op = OPERATORS.get(op.val.as_str()).unwrap();
         let va = self.consume(LITERAL)?;
 
         if cond_expr.is_some() {
@@ -225,14 +225,6 @@ impl Parser {
 
         let se = SimpleExpr{identifier: id, operator: op, value: va.val.clone()};
         Ok(Box::new(se))
-    }
-
-    fn match_token(&mut self, tt: TokenType) -> bool {
-        if self.check(tt) {
-            self.advance();
-            return true;
-        }
-        false
     }
 
     fn consume(&mut self, tt: TokenType) -> Result<&Token, ParseError> {
@@ -274,50 +266,49 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use crate::scanner::scanTokens;
+    use crate::scanner::scan_tokens;
     use crate::parser::{parse, Expr, ParseError};
 
     fn parse_filter(filter: &String) -> Result<Box<dyn Expr>, ParseError> {
-        let mut tokens = scanTokens(&filter).expect("failed to scan the filter");
+        let tokens = scan_tokens(&filter).expect("failed to scan the filter");
         parse(tokens)
+    }
+
+    struct FilterCandidate {
+        input: String,
+        output: String,
+        success: bool
     }
 
     #[test]
     fn test_parse_simple() {
-        let filter = String::from("name eq \"abcd\"");
-        let expr = parse_filter(&filter);
-        assert!(expr.is_ok());
-        let expr = expr.unwrap();
-        assert_eq!(String::from("(name EQ abcd)"), expr.to_string());
+        let mut filters = vec!();
+        let f1 = FilterCandidate{ input: String::from("name eq \"abcd\""), output: String::from("(name EQ abcd)"), success: true};
+        filters.push(f1);
 
-        let filter = String::from("name eq \"abcd\" and age gt 25");
-        let expr = parse_filter(&filter);
-        assert!(expr.is_ok());
-        let expr = expr.unwrap();
-        assert_eq!(String::from("((name EQ abcd) AND (age GT 25))"), expr.to_string());
+        let f2 = FilterCandidate{ input: String::from("name eq \"abcd\" and age gt 25"), success: true, output: String::from("((name EQ abcd) AND (age GT 25))")};
+        filters.push(f2);
 
-        let filter = String::from("(name eq \"abcd\")"); // within parentheses
-        let expr = parse_filter(&filter);
-        assert!(expr.is_ok());
-        let expr = expr.unwrap();
-        assert_eq!(String::from("(name EQ abcd)"), expr.to_string());
+        // within parentheses
+        let f3 = FilterCandidate{ input: String::from("(name eq \"abcd\")"), success: true, output: String::from("(name EQ abcd)")};
+        filters.push(f3);
 
-        let filter = String::from("((name EQ \"abcd\") AND (age GT 25))"); // within parentheses
-        let expr = parse_filter(&filter);
-        assert!(expr.is_ok());
-        let expr = expr.unwrap();
-        assert_eq!(String::from("((name EQ abcd) AND (age GT 25))"), expr.to_string());
+        // within parentheses
+        let f4 = FilterCandidate{ input: String::from("((name EQ \"abcd\") AND (age GT 25))"), success: true, output: String::from("((name EQ abcd) AND (age GT 25))")};
+        filters.push(f4);
 
-        let filter = String::from("(name[given eq \"A\"].last co \"abcd\")"); // within parentheses
-        let expr = parse_filter(&filter);
-        assert!(expr.is_ok());
-        let expr = expr.unwrap();
-        assert_eq!(String::from("(name[(given EQ A)].last CO abcd)"), expr.to_string());
+        // conditional expression
+        let f5 = FilterCandidate{ input: String::from("(name[given eq \"A\"].last co \"abcd\")"), success: true, output: String::from("(name[(given EQ A)].last CO abcd)")};
+        filters.push(f5);
 
-        let filter = String::from("not(name eq \"abcd\")");
-        let expr = parse_filter(&filter);
-        assert!(expr.is_ok());
-        let expr = expr.unwrap();
-        assert_eq!(String::from("NOT(name EQ abcd)"), expr.to_string());
+        let f6 = FilterCandidate{ input: String::from("not(name eq \"abcd\")"), success: true, output: String::from("NOT(name EQ abcd)")};
+        filters.push(f6);
+
+        for f in filters {
+            let expr = parse_filter(&f.input);
+            assert!(f.success);
+            let expr = expr.unwrap();
+            assert_eq!(f.output, expr.to_string());
+        }
     }
 }
