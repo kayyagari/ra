@@ -7,7 +7,8 @@ use crate::parser::ExprType::*;
 struct Parser {
     tokens: Vec<Token>,
     current: usize,
-    bracket_opened: bool
+    open_paren_count: i32,
+    open_bracket_count: i32
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -137,7 +138,7 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Box<dyn Expr>, ParseError> {
     let eof = Token{ val: String::from(""), ttype: TokenType::EOF};
     tokens.push(eof);
 
-    let mut p = Parser{ tokens, current: 0, bracket_opened: false};
+    let mut p = Parser{ tokens, current: 0, open_paren_count: 0, open_bracket_count: 0};
 
     p.parse()
 }
@@ -149,26 +150,28 @@ impl Parser {
             let t = self.peek();
             match t.ttype {
                 IDENTIFIER => {
+                    if e.is_some() {
+                        let prev_type = e.as_ref().unwrap().get_type();
+                        if prev_type == SIMPLE || prev_type == CONDITIONAL {
+                            return Err(ParseError{msg: format!("invalid filter, two or more simple expressions must be bound by a logical expression")});
+                        }
+                    }
                     e = Option::Some(self.parse_expr()?);
                 },
                 LEFT_PAREN => {
                     self.advance();
-                    self.bracket_opened = true;
+                    self.open_paren_count += 1;
                     e = Option::Some(self.parse()?);
                     self.consume(TokenType::RIGHT_PAREN)?;
-                    self.bracket_opened = false;
-                },
-                LEFT_BRACKET => {
-                    self.advance();
-                    self.bracket_opened = true;
-                    e = Option::Some(self.parse()?);
-                    self.consume(TokenType::RIGHT_BRACKET)?;
-                    self.bracket_opened = false;
+                    self.open_paren_count -= 1;
                 },
                 LOGIC_OPERATOR => {
                     let op = t.val.as_str();
                     match op {
                         "and" => {
+                            if e.is_none() {
+                                return Err(ParseError{msg: format!("invalid AND expression in filter")});
+                            }
                             let mut and = Box::new(AndExpr{ children: vec![e.unwrap()] });
                             self.advance();
                             let rhs = self.parse()?;
@@ -182,6 +185,9 @@ impl Parser {
                             e = Option::Some(not);
                         },
                         "or" => {
+                            if e.is_none() {
+                                return Err(ParseError{msg: format!("invalid OR expression in filter")});
+                            }
                             let mut or = Box::new(OrExpr{children: vec!(e.unwrap())});
                             self.advance();
                             let rhs = self.parse()?;
@@ -193,21 +199,27 @@ impl Parser {
                         }
                     }
                 },
-                t => {
-                    match t {
-                        RIGHT_PAREN | RIGHT_BRACKET => {
-                            if !self.bracket_opened {
-                                return Err(ParseError { msg: format!("invalid closing {}", t) });
-                            }
-                            break;
-                        },
-                        _ => {
-                            return Err(ParseError{msg: format!("invalid token type {}", t)});
-                        }
+                RIGHT_PAREN => {
+                    if self.open_paren_count - 1 < 0 {
+                        return Err(ParseError { msg: format!("invalid closing {}", RIGHT_PAREN) });
                     }
+                    break;
+                },
+                RIGHT_BRACKET => {
+                    if self.open_bracket_count - 1 < 0 {
+                        return Err(ParseError { msg: format!("invalid closing {}", RIGHT_BRACKET) });
+                    }
+                    break;
+                },
+                t => {
+                    return Err(ParseError{msg: format!("invalid token type {}", t)});
                 }
             }
 
+        }
+
+        if e.is_none() {
+            return Err(ParseError{msg: String::from("invalid filter")});
         }
 
         Ok(e.unwrap())
@@ -221,10 +233,12 @@ impl Parser {
         let mut id_path: Option<String> = Option::None;
         if self.peek().ttype == TokenType::LEFT_BRACKET { // there is a conditional expression
             self.consume(TokenType::LEFT_BRACKET)?;
+            self.open_bracket_count += 1;
             let ce = self.parse()?;
             self.consume(TokenType::RIGHT_BRACKET)?;
             let id_path_token = self.consume(TokenType::IDENTIFIER_PATH)?;
             id_path = Option::Some(id_path_token.val.clone());
+            self.open_bracket_count -= 1;
             cond_expr = Some(ce);
         }
 
@@ -246,18 +260,18 @@ impl Parser {
             return Ok(self.advance());
         }
         let found = self.peek();
-        Err(ParseError{msg: format!("expected token {} but found {}", tt, found.ttype)})
+        Err(ParseError{msg: format!("expected token {} but found {} with value {}", tt, found.ttype, &found.val)})
     }
 
     fn peek(&self) -> &Token {
         &self.tokens[self.current]
     }
 
-    fn is_at_end(&mut self) -> bool {
+    fn is_at_end(&self) -> bool {
         self.peek().ttype == TokenType::EOF
     }
 
-    fn check(&mut self, tt: TokenType) -> bool {
+    fn check(&self, tt: TokenType) -> bool {
         if self.is_at_end() {
             return false;
         }
@@ -273,7 +287,7 @@ impl Parser {
         self.previous()
     }
 
-    fn previous(&mut self) -> &Token {
+    fn previous(&self) -> &Token {
         &self.tokens[self.current - 1]
     }
 }
@@ -282,6 +296,7 @@ impl Parser {
 mod tests {
     use crate::scanner::scan_tokens;
     use crate::parser::{parse, Expr, ParseError};
+    use std::process::Command;
 
     fn parse_filter(filter: &String) -> Result<Box<dyn Expr>, ParseError> {
         let tokens = scan_tokens(&filter).expect("failed to scan the filter");
@@ -338,10 +353,52 @@ mod tests {
         filters.push(String::from("namez eq 1].a eq \"abcd\""));
 
         // logical errors
-        // filters.push(String::from("name eq \"abcd\" age gt 25"));
+        filters.push(String::from("name eq \"abcd\" age gt 25"));
+        filters.push(String::from("and and"));
+        filters.push(String::from("age gt 25 and and"));
+        filters.push(String::from("or or"));
+        filters.push(String::from("age gt 25 or or"));
+        filters.push(String::from("age gt 25 or or[]"));
+        filters.push(String::from("_n1-_U70KQ8w[not(NOT(NoT(Not(nOT(J3 sw \"a\")))and))].Vb[noT(z5t6yk9x4[R20A274 GE 2].oF sa S)].gW CO \"[0SZWC\""));
         for f in filters {
             let r = parse_filter(&f);
+            let x = r.as_ref().err().unwrap();
+            println!("{:?}", x);
             assert!(r.is_err());
+        }
+    }
+
+    #[test]
+    fn test_using_abnfgen() {
+        let mut abnfgen = Command::new("abnfgen");
+        abnfgen.arg("-c").arg("search-filter.abnf");
+        if abnfgen.output().is_err() {
+            println!("abnfgen command failed, skipping fuzzing of filter parser. Check the path of abnfgen and try again.");
+            return;
+        }
+
+        let n = 200;
+        println!("testing parser with {} generated filters", n);
+        for _ in 1..n {
+            let out = abnfgen.output().unwrap();
+            let filter = String::from_utf8(out.stdout).unwrap();
+            let filter = filter.replace("\n", "");
+            let filter = filter.replace("\r", "");
+            let tokens = scan_tokens(&filter);
+            if tokens.is_err() {
+                // no reason to parse further if scanner found errors
+                continue;
+            }
+            //println!("parsing: {}", &filter);
+            let r = parse(tokens.unwrap());
+            if r.is_err() {
+                assert!(r.is_err());
+                let pe = r.err().unwrap();
+                println!("{:?}\n{}", &pe, filter);
+            }
+            else {
+                assert!(r.is_ok());
+            }
         }
     }
 }
