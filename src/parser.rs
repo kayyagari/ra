@@ -6,7 +6,8 @@ use crate::parser::ExprType::*;
 
 struct Parser {
     tokens: Vec<Token>,
-    current: usize
+    current: usize,
+    bracket_opened: bool
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -136,7 +137,7 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Box<dyn Expr>, ParseError> {
     let eof = Token{ val: String::from(""), ttype: TokenType::EOF};
     tokens.push(eof);
 
-    let mut p = Parser{ tokens, current: 0};
+    let mut p = Parser{ tokens, current: 0, bracket_opened: false};
 
     p.parse()
 }
@@ -152,13 +153,17 @@ impl Parser {
                 },
                 LEFT_PAREN => {
                     self.advance();
+                    self.bracket_opened = true;
                     e = Option::Some(self.parse()?);
                     self.consume(TokenType::RIGHT_PAREN)?;
+                    self.bracket_opened = false;
                 },
                 LEFT_BRACKET => {
                     self.advance();
+                    self.bracket_opened = true;
                     e = Option::Some(self.parse()?);
                     self.consume(TokenType::RIGHT_BRACKET)?;
+                    self.bracket_opened = false;
                 },
                 LOGIC_OPERATOR => {
                     let op = t.val.as_str();
@@ -188,9 +193,18 @@ impl Parser {
                         }
                     }
                 },
-                _ => {
-                    //return Err(ParseError{msg: format!("invalid token, type {}", t)});
-                    break;
+                t => {
+                    match t {
+                        RIGHT_PAREN | RIGHT_BRACKET => {
+                            if !self.bracket_opened {
+                                return Err(ParseError { msg: format!("invalid closing {}", t) });
+                            }
+                            break;
+                        },
+                        _ => {
+                            return Err(ParseError{msg: format!("invalid token type {}", t)});
+                        }
+                    }
                 }
             }
 
@@ -281,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_simple() {
+    fn test_parse_valid() {
         let mut filters = vec!();
         let f1 = FilterCandidate{ input: String::from("name eq \"abcd\""), output: String::from("(name EQ abcd)"), success: true};
         filters.push(f1);
@@ -309,6 +323,25 @@ mod tests {
             assert!(f.success);
             let expr = expr.unwrap();
             assert_eq!(f.output, expr.to_string());
+        }
+    }
+
+    #[test]
+    /// tests that are valid for scanner but not for parser
+    fn test_parse_invalid() {
+        let mut filters = vec!();
+        filters.push(String::from("name eq \"abcd\" age"));
+        filters.push(String::from("(name eq \"abcd\""));
+        filters.push(String::from("name eq \"abcd\")"));
+        filters.push(String::from("(name eq \"abcd\"))"));
+        filters.push(String::from("name[z eq 1.a eq \"abcd\""));
+        filters.push(String::from("namez eq 1].a eq \"abcd\""));
+
+        // logical errors
+        // filters.push(String::from("name eq \"abcd\" age gt 25"));
+        for f in filters {
+            let r = parse_filter(&f);
+            assert!(r.is_err());
         }
     }
 }
