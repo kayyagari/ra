@@ -179,6 +179,12 @@ impl Parser {
                             e = Option::Some(and);
                         },
                         "not" => {
+                            if e.is_some() {
+                                let prev_type = e.as_ref().unwrap().get_type();
+                                if prev_type != AND || prev_type != OR {
+                                    return Err(ParseError{msg: format!("misplaced NOT expression in filter")});
+                                }
+                            }
                             self.advance();
                             let rhs = self.parse()?;
                             let not = Box::new(NotExpr{child: rhs});
@@ -333,6 +339,9 @@ mod tests {
         let f6 = FilterCandidate{ input: String::from("not(name eq \"abcd\")"), success: true, output: String::from("NOT(name EQ abcd)")};
         filters.push(f6);
 
+        let f7 = FilterCandidate{ input: String::from("age gt 25 and not(name eq \"abcd\")"), success: true, output: String::from("((age GT 25) AND NOT(name EQ abcd))")};
+        filters.push(f7);
+
         for f in filters {
             let expr = parse_filter(&f.input);
             assert!(f.success);
@@ -353,6 +362,7 @@ mod tests {
         filters.push(String::from("namez eq 1].a eq \"abcd\""));
 
         // logical errors
+        filters.push(String::from("name eq \"abcd\" not(age gt 25)"));
         filters.push(String::from("name eq \"abcd\" age gt 25"));
         filters.push(String::from("and and"));
         filters.push(String::from("age gt 25 and and"));
