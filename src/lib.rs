@@ -5,14 +5,24 @@ use log::LevelFilter;
 use std::collections::HashMap;
 use crate::res_schema::ResourceDef;
 use log4rs::encode::pattern::PatternEncoder;
+use thiserror::Error;
 
 pub mod validator;
 mod res_schema;
 mod context;
 mod errors;
-mod barn;
+// mod barn;
 mod utils;
 mod scanner;
+mod parser;
+mod dtypes;
+mod search;
+
+#[derive(Error, Debug)]
+pub enum RaError {
+    #[error("{0}")]
+    SchemaParsingError(String)
+}
 
 fn configure_log4rs() {
     let stdout = ConsoleAppender::builder()

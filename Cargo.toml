@@ -18,7 +18,7 @@ crc32fast = "1.2.1"
 log4rs = {version = "1.0.0", features = ["pattern_encoder"]}
 log = "0.4.14"
 log-mdc = "0.1.0"
-rocksdb = "0.17.0"
+#rocksdb = "0.17.0"
 rawbson = "0.2.1"
 bson = "1.2.2"
 chrono = "0.4.19"
