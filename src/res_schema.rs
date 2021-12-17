@@ -27,7 +27,8 @@ pub struct SearchParamDef {
     pub code: String,
     pub param_type: &'static str,
     pub expression: String,
-    pub conditional_expression: bool
+    pub conditional_expression: bool,
+    pub components: Option<Vec<String>>
 }
 
 pub struct PropertyDef {
@@ -237,6 +238,10 @@ fn parse_single_prop_def(name: &String, pdef_json: &serde_json::map::Map<String,
     let primitive = dtype.is_primitive();
     let pdef = PropertyDef{name: name.clone(), dtype, primitive, props: Option::None, collection, ref_type_name: String::from(type_val)};
     Ok(pdef)
+}
+
+fn parse_search_params() {
+
 }
 
 fn get_crc_hash(k: &String) -> [u8;4] {
