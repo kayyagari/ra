@@ -77,7 +77,7 @@ pub struct FilterError {
 
 #[derive(Debug)]
 pub struct EvalError {
-    msg: String
+    pub msg: String
 }
 
 impl Error for FilterError{}

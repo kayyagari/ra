@@ -17,6 +17,7 @@ mod scanner;
 mod parser;
 mod dtypes;
 mod search;
+mod rapath;
 
 #[derive(Error, Debug)]
 pub enum RaError {
