@@ -28,7 +28,7 @@ pub trait Expr {
 
 #[derive(Debug)]
 pub struct ParseError {
-    msg: String
+    pub msg: String
 }
 
 #[derive(Debug)]

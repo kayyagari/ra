@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use lazy_static::lazy_static;
 use std::fmt::{Display, Formatter};
 use std::error::Error;
+use self::TokenType::*;
 
 lazy_static! {
  pub static ref KEYWORDS: HashMap<&'static str, TokenType> = {
@@ -77,6 +78,7 @@ pub enum TokenType {
     EQUIVALENT, NOT_EQUIVALENT,
     GREATER, GREATER_EQUAL,
     LESS, LESS_EQUAL,
+    UNION,
 
     IDENTIFIER,
     STRING, NUMBER, DATE, TIME,
@@ -160,6 +162,42 @@ impl Display for TokenType {
     }
 }
 
+impl TokenType {
+    pub fn lbp(&self) -> usize {
+        match *self {
+            IMPLIES => 1,
+            XOR => 2,
+            OR => 2,
+            AND => 3,
+            IN => 5,
+            CONTAINS => 5,
+            EQUAL => 9,
+            EQUIVALENT => 9,
+            NOT_EQUAL => 9,
+            NOT_EQUIVALENT => 9,
+            GREATER => 20,
+            GREATER_EQUAL => 20,
+            LESS => 20,
+            LESS_EQUAL => 20,
+            UNION => 21,
+            IS => 40,
+            AS => 40,
+            PLUS => 45,
+            MINUS => 45,
+            AMPERSAND => 45,
+            STAR => 50,
+            SLASH => 50,
+            DIV => 50,
+            MOD => 50,
+            LEFT_BRACE => 52,
+            LEFT_BRACKET => 55,
+            DOT => 60,
+            LEFT_PAREN  => 75,
+            _ => 0
+        }
+    }
+}
+
 impl Scanner {
     fn scan(&mut self, tokens: &mut Vec<Token>) {
         while !self.is_at_end() {
@@ -176,37 +214,37 @@ impl Scanner {
         let mut t: Option<Token> = Option::None;
         match c {
             '(' => {
-                t = Option::Some(Token { val: String::from('('), ttype: TokenType::LEFT_PAREN });
+                t = Option::Some(Token { val: String::from('('), ttype: LEFT_PAREN });
             }
             ')' => {
-                t = Option::Some(Token { val: String::from(')'), ttype: TokenType::RIGHT_PAREN });
+                t = Option::Some(Token { val: String::from(')'), ttype: RIGHT_PAREN });
             }
             '[' => {
-                t = Option::Some(Token { val: String::from('['), ttype: TokenType::LEFT_BRACKET });
+                t = Option::Some(Token { val: String::from('['), ttype: LEFT_BRACKET });
             }
             ']' => {
-                t = Option::Some(Token { val: String::from(']'), ttype: TokenType::RIGHT_BRACKET });
+                t = Option::Some(Token { val: String::from(']'), ttype: RIGHT_BRACKET });
             },
             '{' => {
-                t = Option::Some(Token{ val: String::from('{'), ttype: TokenType::LEFT_BRACE});
+                t = Option::Some(Token{ val: String::from('{'), ttype: LEFT_BRACE});
             },
             '}' => {
-                t = Option::Some(Token{ val: String::from('}'), ttype: TokenType::RIGHT_BRACE});
+                t = Option::Some(Token{ val: String::from('}'), ttype: RIGHT_BRACE});
             },
             '.' => {
-                t = Option::Some(Token{ val: String::from('.'), ttype: TokenType::DOT});
+                t = Option::Some(Token{ val: String::from('.'), ttype: DOT});
             },
             ',' => {
-                t = Option::Some(Token{ val: String::from(','), ttype: TokenType::COMMA});
+                t = Option::Some(Token{ val: String::from(','), ttype: COMMA});
              },
             '-' => {
-                t = Option::Some(Token{ val: String::from('-'), ttype: TokenType::MINUS});
+                t = Option::Some(Token{ val: String::from('-'), ttype: MINUS});
              },
             '+' => {
-                t = Option::Some(Token{ val: String::from('+'), ttype: TokenType::PLUS});
+                t = Option::Some(Token{ val: String::from('+'), ttype: PLUS});
              },
             '*' => {
-                t = Option::Some(Token{ val: String::from('*'), ttype: TokenType::STAR});
+                t = Option::Some(Token{ val: String::from('*'), ttype: STAR});
              },
             '/' => {
                 let next = self.peek();
@@ -232,49 +270,49 @@ impl Scanner {
                     }
                 }
                 else {
-                    t = Option::Some(Token{ val: String::from('/'), ttype: TokenType::SLASH});
+                    t = Option::Some(Token{ val: String::from('/'), ttype: SLASH});
                 }
             },
             '&' => {
-                t = Option::Some(Token{ val: String::from('&'), ttype: TokenType::AMPERSAND});
+                t = Option::Some(Token{ val: String::from('&'), ttype: AMPERSAND});
             },
             '|' => {
-                t = Option::Some(Token{ val: String::from('|'), ttype: TokenType::OR});
+                t = Option::Some(Token{ val: String::from('|'), ttype: UNION});
             },
             '~' => {
-                t = Option::Some(Token{ val: String::from('~'), ttype: TokenType::EQUIVALENT});
+                t = Option::Some(Token{ val: String::from('~'), ttype: EQUIVALENT});
             },
             '!' => {
                 let next = self.peek();
                 if next == '=' {
-                    t = self.create_token ("!=", TokenType::NOT_EQUAL);
+                    t = self.create_token ("!=", NOT_EQUAL);
                     self.advance();
                 }
                 else if next == '~' {
-                    t = self.create_token ("!~", TokenType::NOT_EQUIVALENT);
+                    t = self.create_token ("!~", NOT_EQUIVALENT);
                     self.advance();
                 }
                 else {
-                    t = self.create_token ("!", TokenType::NOT);
+                    t = self.create_token ("!", NOT);
                 }
             },
             '=' => {
-                t = self.create_token ("=", TokenType::EQUAL);
+                t = self.create_token ("=", EQUAL);
             },
             '<' => {
                 if self.match_char('=') {
-                    t = self.create_token ("<=", TokenType::LESS_EQUAL);
+                    t = self.create_token ("<=", LESS_EQUAL);
                 }
                 else {
-                    t = self.create_token ("<", TokenType::LESS);
+                    t = self.create_token ("<", LESS);
                 }
             },
             '>' => {
                 if self.match_char('=') {
-                    t = self.create_token (">=", TokenType::GREATER_EQUAL);
+                    t = self.create_token (">=", GREATER_EQUAL);
                 }
                 else {
-                    t = self.create_token (">", TokenType::GREATER);
+                    t = self.create_token (">", GREATER);
                 }
             },
             '@' => {
@@ -285,9 +323,17 @@ impl Scanner {
             },
             '%' => {
                 t = self.read_identifier();
-                t.as_mut().unwrap().ttype = TokenType::CONSTANT;
+                t.as_mut().unwrap().ttype = CONSTANT;
             },
-            ' ' | '\t' | '\n' => {
+            '`' => {
+                t = self.read_identifier();
+                if !self.match_char('`') {
+                    // TODO throw an Err("")
+                }
+                t.as_mut().unwrap().ttype = IDENTIFIER;
+                self.advance();
+            },
+            ' ' | '\t' | '\n' | '\r' => {
                 // eat it
             },
             _ => {
@@ -318,7 +364,7 @@ impl Scanner {
         }
 
         let val: String = self.filter[begin .. self.current].iter().collect();
-        let t = Token{val, ttype: TokenType::NUMBER};
+        let t = Token{val, ttype: NUMBER};
         Option::Some(t)
     }
 
@@ -328,7 +374,7 @@ impl Scanner {
         }
 
         let mut val: String = self.filter[self.start .. self.current].iter().collect();
-        let mut tt: TokenType = TokenType::IDENTIFIER;
+        let mut tt: TokenType = IDENTIFIER;
         if let Some(k) = KEYWORDS.get(val.as_str()) {
             tt = *k;
         }
@@ -367,7 +413,7 @@ impl Scanner {
 
         self.advance();
 
-        Option::Some(Token { val: val.iter().collect(), ttype: TokenType::STRING })
+        Option::Some(Token { val: val.iter().collect(), ttype: STRING })
     }
 
     fn advance(&mut self) -> char {

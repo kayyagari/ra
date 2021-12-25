@@ -1,7 +1,7 @@
-use crate::rapath::scanner::{Token, TokenType};
 use crate::parser::ParseError;
+use crate::rapath::expr::{Ast, Operator, Collection, SystemType, SystemNumber};
+use crate::rapath::scanner::{Token, TokenType};
 use crate::rapath::scanner::TokenType::*;
-use crate::rapath::expr::{Expr, SystemBoolean, SystemDecimal, BinaryExpr, Collection, SystemConstant, FunctionExpr};
 
 struct Parser {
     tokens: Vec<Token>,
@@ -10,7 +10,7 @@ struct Parser {
     open_bracket_count: i32
 }
 
-pub fn parse(mut tokens: Vec<Token>) -> Result<Box<dyn Expr>, ParseError> {
+pub fn parse(mut tokens: Vec<Token>) -> Result<Ast, ParseError> {
     let eof = Token{ val: String::from(""), ttype: TokenType::EOF};
     tokens.push(eof);
 
@@ -20,94 +20,128 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Box<dyn Expr>, ParseError> {
 }
 
 impl Parser {
-    fn parse(&mut self) -> Result<Box<dyn Expr>, ParseError> {
-        let e = self.expression()?;
-        if e.is_none() {
-            return Err(ParseError{msg: String::from("invalid expression")});
+    fn parse(&mut self) -> Result<Ast, ParseError> {
+        let e = self.expression(0)?;
+        if self.peek().ttype != EOF {
+            return Err(ParseError{msg: String::from("invalid expression, it was not completely parsed")});
         }
-
-        Ok(e.unwrap())
+        Ok(e)
     }
 
-    fn expression(&mut self) -> Result<Option<Box<dyn Expr>>, ParseError> {
-        self.term()
+    fn expression(&mut self, rbp: usize) -> Result<Ast, ParseError> {
+        let mut left = self.null_denotation();
+        while rbp < self.peek().ttype.lbp() {
+            left = self.left_denotation(Box::new(left?));
+        }
+        left
     }
 
-    fn term(&mut self) -> Result<Option<Box<dyn Expr>>, ParseError> {
-        let mut left = self.literal()?;
-        while self.match_tt(PLUS) || self.match_tt(MINUS) {
-            let t = self.previous().ttype;
-            let right = self.literal()?;
-            left = Box::new(BinaryExpr{left, right, op: t});
-        }
+    fn null_denotation(&mut self) -> Result<Ast, ParseError> {
+        let t = self.advance().ttype;
+        match t {
+            LEFT_BRACE => {
+                self.consume(RIGHT_BRACE)?;
+                let c: Collection<SystemType> = Collection::new();
+                Ok(Ast::Literal {val: SystemType::Collection(c)} )
+            },
+            TRUE => {
+                Ok(Ast::Literal {val: SystemType::Boolean(true)})
+            },
+            FALSE => {
+                Ok(Ast::Literal {val: SystemType::Boolean(false)})
+            },
+            STRING | IDENTIFIER => {
+                Ok(Ast::Literal {val: SystemType::String(self.previous().val.clone())})
+            },
+            CONSTANT => {
+                Ok(Ast::EnvVariable {val: SystemType::String(self.previous().val.clone())})
+            },
+            NUMBER => {
+                // TODO separate integer and decimal
+                // TODO handle quantity
+                let sd = SystemNumber::from(&self.previous().val)?;
+                Ok(Ast::Literal {val: SystemType::Number(sd)})
+            },
+            LEFT_PAREN => {
+              let e = self.expression(0)?;
+                self.consume(RIGHT_PAREN)?;
+                Ok(e)
+            },
 
-        Ok(left)
-    }
-
-    fn literal(&mut self) -> Result<Option<Box<dyn Expr>>, ParseError> {
-        if self.match_tt(LEFT_BRACE) {
-            self.consume(RIGHT_BRACE)?;
-            let c: Collection<bool> = Collection::new();
-            return Ok(Option::Some(Box::new(c)));
-        }
-
-        if self.match_tt(TRUE) {
-            return Ok(Option::Some(Box::new(SystemBoolean{val: true})));
-        }
-
-        if self.match_tt(FALSE) {
-            return Ok(Option::Some(Box::new(SystemBoolean{val: false})));
-        }
-
-        if self.match_tt(NUMBER) {
-            // TODO separate integer and decimal
-            // TODO handle quantity
-            let sd = SystemDecimal::from(&self.previous().val)?;
-            return Ok(Option::Some(Box::new(sd)));
-        }
-
-        Ok(Option::None)
-    }
-
-    fn constant(&mut self) -> Result<Option<Box<dyn Expr>>, ParseError> {
-        if self.match_tt(CONSTANT) {
-            let e = SystemConstant{val: self.previous().val.clone()};
-            return Ok(Option::Some(Box::new(e)));
-        }
-
-        Ok(Option::None)
-    }
-
-    fn invocation(&mut self) -> Result<Option<Box<dyn Expr>>, ParseError> {
-        let next = self.peek().ttype;
-        let after_next = self.peek_double().ttype;
-        match next {
-            DOLLAR_TOTAL | DOLLAR_INDEX | DOLLAR_THIS => {
-
+            _ => {
+                Err(ParseError{msg: format!("unexpected token {} {}", t, &self.previous().val)})
             }
         }
     }
 
-    fn function(&mut self) -> Result<Option<Box<dyn Expr>>, ParseError> {
-        if self.match_tt(IDENTIFIER) {
-            let name = self.previous().val.clone();
-            self.consume(LEFT_PAREN);
-            let mut params: Vec<Box<dyn Expr>> = vec!();
-            while !self.match_tt(RIGHT_PAREN) {
-                let e = self.expression()?;
-                params.push(e);
-                if self.match_tt(COMMA) {
-                    self.advance();
-                }
+    fn left_denotation(&mut self, left: Box<Ast>) -> Result<Ast, ParseError> {
+        let t = self.advance().ttype;
+        match t {
+            DOT => {
+                let rhs = self.expression(t.lbp())?;
+                Ok(Ast::SubExpr {
+                    lhs: left,
+                    rhs: Box::new(rhs)
+                })
+            },
+            AND => {
+                let rhs = self.expression(t.lbp())?;
+                Ok(Ast::Binary {
+                    lhs: left,
+                    rhs: Box::new(rhs),
+                    op: Operator::And
+                })
+            },
+            OR => {
+                let rhs = self.expression(t.lbp())?;
+                Ok(Ast::Binary {
+                    lhs: left,
+                    rhs: Box::new(rhs),
+                    op: Operator::Or
+                })
+            },
+            EQUAL => {
+                let rhs = self.expression(t.lbp())?;
+                Ok(Ast::Binary {
+                    lhs: left,
+                    rhs: Box::new(rhs),
+                    op: Operator::Equal
+                })
+            },
+            PLUS => {
+                let rhs = self.expression(t.lbp())?;
+                Ok(Ast::Binary {
+                    lhs: left,
+                    rhs: Box::new(rhs),
+                    op: Operator::Plus
+                })
+            },
+            _ => {
+                Err(ParseError{msg: format!("unexpected token on rhs {}", t)})
             }
-            self.consume(RIGHT_PAREN);
-
-            let f = FunctionExpr{ name, params};
-            return Ok(Option::Some(Box::new(f)));
         }
-
-        Ok(Option::None)
     }
+
+    // fn function(&mut self) -> Result<Option<Ast>, ParseError> {
+    //     if self.match_tt(IDENTIFIER) {
+    //         let name = self.previous().val.clone();
+    //         self.consume(LEFT_PAREN);
+    //         let mut params: Vec<Ast> = vec!();
+    //         while !self.match_tt(RIGHT_PAREN) {
+    //             let e = self.expression()?;
+    //             params.push(e);
+    //             if self.match_tt(COMMA) {
+    //                 self.advance();
+    //             }
+    //         }
+    //         self.consume(RIGHT_PAREN);
+    //
+    //         let f = FunctionExpr{ name, params};
+    //         return Ok(Option::Some(Box::new(f)));
+    //     }
+    //
+    //     Ok(Option::None)
+    // }
 
     fn consume(&mut self, tt: TokenType) -> Result<&Token, ParseError> {
         if self.check(tt) {
@@ -170,22 +204,33 @@ impl Parser {
 }
 #[cfg(test)]
 mod tests {
-    use crate::rapath::scanner::{scan_tokens, TokenType, Token};
-    use crate::rapath::parser::{BinaryExpr, SystemDecimal, Expr, parse};
+    use crate::rapath::parser::{Ast, parse};
+    use crate::rapath::scanner::{scan_tokens, Token, TokenType};
+
+    struct ExprCandidate<'a> {
+        e: &'a str,
+        valid: bool
+    }
 
     #[test]
     fn test_simple_expr() {
-        let input = String::from("1+1");
-        let tokens = scan_tokens(&input).unwrap();
-        // let left = Box::new(SystemDecimal{val: 1 as f64});
-        // let right = Box::new(SystemDecimal{val: 1 as f64});
-        // let be = BinaryExpr{left , right, op: TokenType::PLUS};
-        // let result = be.eval();
-        // let result = parse(tokens);
-        // assert!(result.is_ok());
-        // let eval_result = result.unwrap().eval();
-        // assert!(eval_result.is_ok());
-        // let eval_result = eval_result.unwrap();
-        // println!("{}", eval_result.to_string());
+        let mut xprs = vec!();
+        let x1 = ExprCandidate{e: "1+1", valid: true};
+        xprs.push(x1);
+
+        let x1 = ExprCandidate{e: "1+1 and 0 + 6", valid: true};
+        xprs.push(x1);
+
+        for x in xprs {
+            let tokens = scan_tokens(&String::from(x.e)).unwrap();
+            let result = parse(tokens);
+            if x.valid {
+                assert!(result.is_ok());
+                println!("{:?}", result.unwrap());
+            }
+            else {
+                assert!(!x.valid);
+            }
+        }
     }
 }
