@@ -2,14 +2,17 @@ use std::fmt::{Display, Formatter};
 
 use chrono::{DateTime, NaiveTime, Utc};
 
-use crate::rapath::scanner::{Token, TokenType};
+use crate::rapath::scanner::{Token};
 use crate::search::EvalError;
 use crate::parser::ParseError;
-use crate::rapath::scanner::TokenType::*;
+use crate::rapath::scanner::Token::*;
 use crate::rapath::expr::N::Decimal;
 
 #[derive(Debug)]
 pub enum Ast {
+    Identifier {
+      name: String
+    },
     SubExpr {
         lhs: Box<Ast>,
         rhs: Box<Ast>
@@ -66,8 +69,9 @@ pub struct SystemNumber {
 
 #[derive(Debug)]
 enum N {
+    Integer(i64),
+    UnsignedInt(u64),
     PositiveInt(u64),
-    NegativeInt(i64),
     Decimal(f64)
 }
 
@@ -108,7 +112,7 @@ pub struct FunctionExpr {
 pub struct BinaryExpr {
     pub left: Box<Ast>,
     pub right: Box<Ast>,
-    pub op: TokenType
+    pub op: Token
 }
 
 impl<T> Collection<T> {
@@ -129,5 +133,9 @@ impl SystemNumber {
         }
         let n = n.unwrap();
         Ok(SystemNumber {val: Decimal(n)})
+    }
+
+    pub fn to_negative_val(&mut self) {
+        //self.val.negate();
     }
 }

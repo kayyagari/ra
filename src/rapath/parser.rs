@@ -1,20 +1,16 @@
 use crate::parser::ParseError;
 use crate::rapath::expr::{Ast, Operator, Collection, SystemType, SystemNumber};
-use crate::rapath::scanner::{Token, TokenType};
-use crate::rapath::scanner::TokenType::*;
+use crate::rapath::scanner::{TokenAndPos, Token};
+use crate::rapath::scanner::Token::*;
+use std::collections::VecDeque;
+use crate::rapath::expr::Ast::Literal;
 
 struct Parser {
-    tokens: Vec<Token>,
-    current: usize,
-    open_paren_count: i32,
-    open_bracket_count: i32
+    tokens: VecDeque<TokenAndPos>
 }
 
-pub fn parse(mut tokens: Vec<Token>) -> Result<Ast, ParseError> {
-    let eof = Token{ val: String::from(""), ttype: TokenType::EOF};
-    tokens.push(eof);
-
-    let mut p = Parser{ tokens, current: 0, open_paren_count: 0, open_bracket_count: 0};
+pub fn parse(mut tokens: VecDeque<TokenAndPos>) -> Result<Ast, ParseError> {
+    let mut p = Parser{ tokens };
 
     p.parse()
 }
@@ -22,7 +18,7 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Ast, ParseError> {
 impl Parser {
     fn parse(&mut self) -> Result<Ast, ParseError> {
         let e = self.expression(0)?;
-        if self.peek().ttype != EOF {
+        if self.peek().0 != EOF {
             return Err(ParseError{msg: String::from("invalid expression, it was not completely parsed")});
         }
         Ok(e)
@@ -30,17 +26,17 @@ impl Parser {
 
     fn expression(&mut self, rbp: usize) -> Result<Ast, ParseError> {
         let mut left = self.null_denotation();
-        while rbp < self.peek().ttype.lbp() {
+        while rbp < self.peek().0.lbp() {
             left = self.left_denotation(Box::new(left?));
         }
         left
     }
 
     fn null_denotation(&mut self) -> Result<Ast, ParseError> {
-        let t = self.advance().ttype;
+        let (t, pos) = self.advance();
         match t {
             LEFT_BRACE => {
-                self.consume(RIGHT_BRACE)?;
+                self.consume(&RIGHT_BRACE)?;
                 let c: Collection<SystemType> = Collection::new();
                 Ok(Ast::Literal {val: SystemType::Collection(c)} )
             },
@@ -50,32 +46,54 @@ impl Parser {
             FALSE => {
                 Ok(Ast::Literal {val: SystemType::Boolean(false)})
             },
-            STRING | IDENTIFIER => {
-                Ok(Ast::Literal {val: SystemType::String(self.previous().val.clone())})
+            STRING(s) => {
+                Ok(Ast::Literal {val: SystemType::String(s)})
             },
-            CONSTANT => {
-                Ok(Ast::EnvVariable {val: SystemType::String(self.previous().val.clone())})
+            IDENTIFIER(id) => {
+                Ok(Ast::Identifier {name: id})
             },
-            NUMBER => {
+            CONSTANT(c) => {
+                Ok(Ast::EnvVariable {val: SystemType::String(c)})
+            },
+            NUMBER(n) => {
                 // TODO separate integer and decimal
                 // TODO handle quantity
-                let sd = SystemNumber::from(&self.previous().val)?;
+                let sd = SystemNumber::from(&n)?;
                 Ok(Ast::Literal {val: SystemType::Number(sd)})
             },
             LEFT_PAREN => {
-              let e = self.expression(0)?;
-                self.consume(RIGHT_PAREN)?;
+                let e = self.expression(0)?;
+                self.consume(&RIGHT_PAREN)?;
                 Ok(e)
             },
-
+            PLUS => {
+                Ok(self.expression(0)?)
+            },
+            MINUS => {
+                let mut e = self.expression(0)?;
+                match e {
+                    Ast::Literal{val: ref mut v} => {
+                        if let SystemType::Number(ref mut n) = v {
+                            n.to_negative_val();
+                            Ok(e)
+                        }
+                        else {
+                            return Err(ParseError{msg: format!("unary minus operator cannot be applied on a non-numeric value {:?}", &v)});
+                        }
+                    },
+                    _ => {
+                        Err(ParseError{msg: format!("invalid token type {:?} for applying - operator", t)})
+                    }
+                }
+            }
             _ => {
-                Err(ParseError{msg: format!("unexpected token {} {}", t, &self.previous().val)})
+                Err(ParseError{msg: format!("unexpected token {}", t)})
             }
         }
     }
 
     fn left_denotation(&mut self, left: Box<Ast>) -> Result<Ast, ParseError> {
-        let t = self.advance().ttype;
+        let (t, pos) = self.advance();
         match t {
             DOT => {
                 let rhs = self.expression(t.lbp())?;
@@ -116,96 +134,109 @@ impl Parser {
                     op: Operator::Plus
                 })
             },
+            LEFT_PAREN => match *left {
+                Ast::Identifier {name: n, ..} => {
+                    let args = self.parse_function_args()?;
+                    let f = Ast::Function {
+                        name: n,
+                        args
+                    };
+                    Ok(f)
+                }
+                _ => {
+                    Err(ParseError{msg: format!("invalid function name {}", t)})
+                }
+            }
             _ => {
                 Err(ParseError{msg: format!("unexpected token on rhs {}", t)})
             }
         }
     }
 
-    // fn function(&mut self) -> Result<Option<Ast>, ParseError> {
-    //     if self.match_tt(IDENTIFIER) {
-    //         let name = self.previous().val.clone();
-    //         self.consume(LEFT_PAREN);
-    //         let mut params: Vec<Ast> = vec!();
-    //         while !self.match_tt(RIGHT_PAREN) {
-    //             let e = self.expression()?;
-    //             params.push(e);
-    //             if self.match_tt(COMMA) {
-    //                 self.advance();
-    //             }
-    //         }
-    //         self.consume(RIGHT_PAREN);
-    //
-    //         let f = FunctionExpr{ name, params};
-    //         return Ok(Option::Some(Box::new(f)));
-    //     }
-    //
-    //     Ok(Option::None)
-    // }
+    fn parse_function_args(&mut self) -> Result<Vec<Ast>, ParseError> {
+        let mut args = Vec::new();
 
-    fn consume(&mut self, tt: TokenType) -> Result<&Token, ParseError> {
+        while self.peek().0 != RIGHT_PAREN {
+            let e = self.expression(0)?;
+            args.push(e);
+
+            if self.peek().0 == COMMA {
+                self.advance();
+                if self.peek().0 != RIGHT_PAREN {
+                    return Err(ParseError{msg: String::from("invalid trailing comma in function arguments")});
+                }
+            }
+        }
+        self.advance();
+        Ok(args)
+    }
+
+    #[inline]
+    fn consume(&mut self, tt: &Token) -> Result<TokenAndPos, ParseError> {
         if self.check(tt) {
             return Ok(self.advance());
         }
-        let found = self.peek();
-        Err(ParseError{msg: format!("expected token {} but found {} with value {}", tt, found.ttype, &found.val)})
+        let (found, pos) = self.peek();
+        Err(ParseError{msg: format!("expected token {} but found {}", &tt, found)})
     }
 
-    fn peek(&self) -> &Token {
-        &self.tokens[self.current]
+    #[inline]
+    fn peek(&self) -> &(Token, usize) {
+        self.peek_at(0)
     }
 
-    fn peek_double(&self) -> &Token {
-        let n = self.current + 1;
-        if n >= self.tokens.len() {
-            return &self.tokens[self.current];
+    #[inline]
+    fn peek_at(&self, index: usize) -> &(Token, usize) {
+        if let Some(t) = self.tokens.get(index) {
+            return t;
         }
 
-        &self.tokens[n]
+        &(Token::EOF, 1)
     }
 
+    #[inline]
     fn is_at_end(&self) -> bool {
-        self.peek().ttype == TokenType::EOF
+        self.peek().0 == EOF
     }
 
-    fn match_tt(&mut self, tt: TokenType) -> bool {
-        let found = self.peek().ttype;
-        if found == TokenType::EOF {
+    #[inline]
+    fn match_tt(&mut self, tt: Token) -> bool {
+        let found = &self.peek().0;
+        if found == &Token::EOF {
             return false;
         }
 
-        if found == tt {
-            self.current += 1;
+        if found == &tt {
+            self.tokens.pop_front();
             return true;
         }
 
         false
     }
 
-    fn check(&self, tt: TokenType) -> bool {
+    #[inline]
+    fn check(&self, tt: &Token) -> bool {
         if self.is_at_end() {
             return false;
         }
 
-        self.peek().ttype == tt
+        &self.peek().0 == tt
     }
 
-    fn advance(&mut self) -> &Token {
-        if !self.is_at_end() {
-            self.current += 1;
+    #[inline]
+    fn advance(&mut self) -> (Token, usize) {
+        if let Some(t) = self.tokens.pop_front() {
+            return t;
         }
 
-        self.previous()
-    }
-
-    fn previous(&self) -> &Token {
-        &self.tokens[self.current - 1]
+        (Token::EOF, 1)
     }
 }
+
 #[cfg(test)]
 mod tests {
-    use crate::rapath::parser::{Ast, parse};
-    use crate::rapath::scanner::{scan_tokens, Token, TokenType};
+    use crate::rapath::parser::{parse};
+    use crate::rapath::scanner::{scan_tokens, Token};
 
     struct ExprCandidate<'a> {
         e: &'a str,
@@ -218,17 +249,34 @@ mod tests {
         let x1 = ExprCandidate{e: "1+1", valid: true};
         xprs.push(x1);
 
-        let x1 = ExprCandidate{e: "1+1 and 0 + 6", valid: true};
-        xprs.push(x1);
+        let x2 = ExprCandidate{e: "1+1 and 0 + 6", valid: true};
+        xprs.push(x2);
+
+        let x3 = ExprCandidate{e: "(1+1)", valid: true};
+        xprs.push(x3);
+
+        let x4 = ExprCandidate{e: "Patient.name.first(1+1)", valid: true};
+        xprs.push(x4);
+
+        let x5 = ExprCandidate{e: "+1", valid: true};
+        xprs.push(x5);
+
+        let x6 = ExprCandidate{e: "-1", valid: true};
+        xprs.push(x6);
+
+        let x6 = ExprCandidate{e: "1-", valid: false};
+        xprs.push(x6);
 
         for x in xprs {
             let tokens = scan_tokens(&String::from(x.e)).unwrap();
+            // println!("{:?}", &tokens);
             let result = parse(tokens);
             if x.valid {
                 assert!(result.is_ok());
                 println!("{:?}", result.unwrap());
             }
             else {
+                println!("{:?}", result.as_ref().err().unwrap());
                 assert!(!x.valid);
             }
         }

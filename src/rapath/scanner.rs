@@ -1,54 +1,55 @@
-use std::collections::HashMap;
-use lazy_static::lazy_static;
-use std::fmt::{Display, Formatter};
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
-use self::TokenType::*;
+use std::fmt::{Display, Formatter};
+use std::iter::Peekable;
+use std::str::{CharIndices};
+
+use lazy_static::lazy_static;
+
+use self::Token::*;
 
 lazy_static! {
- pub static ref KEYWORDS: HashMap<&'static str, TokenType> = {
+ pub static ref KEYWORDS: HashMap<&'static str, Token> = {
         let mut words = HashMap::new();
-        words.insert("div", TokenType::DIV);
-        words.insert("mod", TokenType::MOD);
-        words.insert("is", TokenType::IS);
-        words.insert("as", TokenType::AS);
-        words.insert("in", TokenType::IN);
-        words.insert("contains", TokenType::CONTAINS);
-        words.insert("and", TokenType::AND);
-        words.insert("or", TokenType::OR);
-        words.insert("xor", TokenType::XOR);
-        words.insert("implies", TokenType::IMPLIES);
-        words.insert("true", TokenType::TRUE);
-        words.insert("false", TokenType::FALSE);
-        words.insert("$this", TokenType::DOLLAR_THIS);
-        words.insert("$index", TokenType::DOLLAR_INDEX);
-        words.insert("$total", TokenType::DOLLAR_TOTAL);
+        words.insert("div", Token::DIV);
+        words.insert("mod", Token::MOD);
+        words.insert("is", Token::IS);
+        words.insert("as", Token::AS);
+        words.insert("in", Token::IN);
+        words.insert("contains", Token::CONTAINS);
+        words.insert("and", Token::AND);
+        words.insert("or", Token::OR);
+        words.insert("xor", Token::XOR);
+        words.insert("implies", Token::IMPLIES);
+        words.insert("true", Token::TRUE);
+        words.insert("false", Token::FALSE);
+        words.insert("$this", Token::DOLLAR_THIS);
+        words.insert("$index", Token::DOLLAR_INDEX);
+        words.insert("$total", Token::DOLLAR_TOTAL);
 
-        words.insert("day", TokenType::DAY);
-        words.insert("days", TokenType::DAYS);
-        words.insert("hour", TokenType::HOUR);
-        words.insert("hours", TokenType::HOURS);
-        words.insert("millisecond", TokenType::MILLISECOND);
-        words.insert("milliseconds", TokenType::MILLISECONDS);
-        words.insert("minute", TokenType::MINUTE);
-        words.insert("minutes", TokenType::MINUTES);
-        words.insert("month", TokenType::MONTH);
-        words.insert("months", TokenType::MONTHS);
-        words.insert("second", TokenType::SECOND);
-        words.insert("seconds", TokenType::SECONDS);
-        words.insert("week", TokenType::WEEK);
-        words.insert("weeks", TokenType::WEEKS);
-        words.insert("year", TokenType::YEAR);
-        words.insert("years", TokenType::YEARS);
+        words.insert("day", Token::DAY);
+        words.insert("days", Token::DAYS);
+        words.insert("hour", Token::HOUR);
+        words.insert("hours", Token::HOURS);
+        words.insert("millisecond", Token::MILLISECOND);
+        words.insert("milliseconds", Token::MILLISECONDS);
+        words.insert("minute", Token::MINUTE);
+        words.insert("minutes", Token::MINUTES);
+        words.insert("month", Token::MONTH);
+        words.insert("months", Token::MONTHS);
+        words.insert("second", Token::SECOND);
+        words.insert("seconds", Token::SECONDS);
+        words.insert("week", Token::WEEK);
+        words.insert("weeks", Token::WEEKS);
+        words.insert("year", Token::YEAR);
+        words.insert("years", Token::YEARS);
         words
     };
 }
 
 #[derive(Debug)]
-struct Scanner {
-    start: usize,
-    current: usize,
-    len: usize,
-    filter: Vec<char>,
+struct Scanner<'a> {
+    filter: Peekable<CharIndices<'a>>,
     errors: Vec<String>
 }
 
@@ -58,15 +59,9 @@ pub struct ScanError {
     pub errors: Vec<String>
 }
 
-#[derive(Debug)]
-pub struct Token {
-    pub val: String,
-    pub ttype: TokenType,
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 #[allow(non_camel_case_types)]
-pub enum TokenType {
+pub enum Token {
     LEFT_PAREN, RIGHT_PAREN,
     LEFT_BRACKET, RIGHT_BRACKET,
     LEFT_BRACE, RIGHT_BRACE,
@@ -74,18 +69,18 @@ pub enum TokenType {
     MINUS, PLUS, AMPERSAND,
     SLASH, STAR,
     NOT, NOT_EQUAL,
-    EQUAL, EQUAL_EQUAL,
+    EQUAL,
     EQUIVALENT, NOT_EQUIVALENT,
     GREATER, GREATER_EQUAL,
     LESS, LESS_EQUAL,
     UNION,
 
-    IDENTIFIER,
-    STRING, NUMBER, DATE, TIME,
+    IDENTIFIER(String),
+    STRING(String), NUMBER(String), DATE(String), TIME(String),
 
     DIV, MOD, TRUE, FALSE,
     IS, AS, IN, CONTAINS, AND, OR, XOR, IMPLIES,
-    CONSTANT,
+    CONSTANT(String),
     DOLLAR_THIS, DOLLAR_INDEX, DOLLAR_TOTAL,
 
     // calendar unit keywords
@@ -95,28 +90,25 @@ pub enum TokenType {
     EOF
 }
 
-pub fn scan_tokens(filter: &String) -> Result<Vec<Token>, ScanError> {
-    // this copying is unavoidable because no other format gives the
-    // ability to index into the input string
-    let chars: Vec<char> = filter.chars().collect();
+pub type TokenAndPos = (Token, usize);
+
+pub fn scan_tokens(filter: &str) -> Result<VecDeque<TokenAndPos>, ScanError> {
+    let chars = filter.char_indices().peekable();
     let mut scanner = Scanner {
-        start: 0,
-        current: 0,
-        len: chars.len(),
         filter: chars,
         errors: vec!(),
     };
 
-    let mut tokens: Vec<Token> = vec!();
-    scanner.scan(&mut tokens);
+    let mut tokens = scanner.scan();
     if !scanner.errors.is_empty() {
         return Err(ScanError{errors: scanner.errors});
     }
+    tokens.push_back((EOF, filter.len()));
 
     Ok(tokens)
 }
 
-impl Error for ScanError{
+impl Error for ScanError {
     fn description(&self) -> &str {
         "filter parsing error"
     }
@@ -131,43 +123,82 @@ impl Display for ScanError {
     }
 }
 
-impl Display for TokenType {
+impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let s;
+        let s=
         match self {
-            TokenType::IDENTIFIER => {
-                s = "identifier";
-            },
-            TokenType::RIGHT_BRACKET => {
-                s = "]";
-            },
-            TokenType::LEFT_BRACKET => {
-                s = "[";
-            },
-            TokenType::RIGHT_PAREN => {
-                s = ")";
-            },
-            TokenType::LEFT_PAREN => {
-                s = "(";
-            },
-            TokenType::EOF => {
-                s = "EOF";
-            },
-            _ => {
-              s = "unsupported token";
-            }
-        }
+            IDENTIFIER(id) => id.as_str(),
+            RIGHT_BRACKET => "]",
+            LEFT_BRACKET => "[",
+            RIGHT_PAREN => ")",
+            LEFT_PAREN => "(",
+            EOF => "EOF",
+            LEFT_BRACE => "{",
+            RIGHT_BRACE => "}",
+            COMMA => ",",
+            DOT => ".",
+            MINUS => "-",
+            PLUS => "+",
+            AMPERSAND => "&",
+            SLASH => "/",
+            STAR => "*",
+            NOT => "!",
+            NOT_EQUAL => "!=",
+            EQUAL => "=",
+            EQUIVALENT => "~",
+            NOT_EQUIVALENT => "!~",
+            GREATER => ">",
+            GREATER_EQUAL => ">=",
+            LESS => "<",
+            LESS_EQUAL => "<=",
+            UNION => "|",
+            STRING(v) => v.as_str(),
+            NUMBER(n) => n.as_str(),
+            DATE(d) => d.as_str(),
+            TIME(t) => t.as_str(),
+            DIV => "div",
+            MOD => "mod",
+            TRUE => "true",
+            FALSE => "false",
+            IS => "is",
+            AS => "as",
+            IN => "in",
+            CONTAINS => "contains",
+            AND => "and",
+            OR => "or",
+            XOR => "xor",
+            IMPLIES => "implies",
+            CONSTANT(c) => c.as_str(),
+            DOLLAR_THIS => "$this",
+            DOLLAR_INDEX => "$index",
+            DOLLAR_TOTAL => "$total",
+            DAY => "day",
+            DAYS => "days",
+            HOUR => "hour",
+            HOURS => "hours",
+            MILLISECOND => "millisecond",
+            MILLISECONDS => "milliseconds",
+            MINUTE => "minute",
+            MINUTES => "minutes",
+            MONTH => "month",
+            MONTHS => "months",
+            SECOND => "second",
+            SECONDS => "seconds",
+            WEEK => "week",
+            WEEKS => "weeks",
+            YEAR => "year",
+            YEARS => "years"
+        };
 
         f.write_str(s)
     }
 }
 
-impl TokenType {
+impl Token {
     pub fn lbp(&self) -> usize {
         match *self {
             IMPLIES => 1,
-            XOR => 2,
-            OR => 2,
+            XOR | OR => 2,
             AND => 3,
             IN => 5,
             CONTAINS => 5,
@@ -175,323 +206,320 @@ impl TokenType {
             EQUIVALENT => 9,
             NOT_EQUAL => 9,
             NOT_EQUIVALENT => 9,
-            GREATER => 20,
-            GREATER_EQUAL => 20,
-            LESS => 20,
-            LESS_EQUAL => 20,
+            GREATER | GREATER_EQUAL | LESS | LESS_EQUAL => 20,
             UNION => 21,
-            IS => 40,
-            AS => 40,
-            PLUS => 45,
-            MINUS => 45,
-            AMPERSAND => 45,
-            STAR => 50,
-            SLASH => 50,
-            DIV => 50,
-            MOD => 50,
+            IS | AS => 40,
+            PLUS | MINUS | AMPERSAND => 45,
+            STAR | SLASH | DIV | MOD => 50,
             LEFT_BRACE => 52,
             LEFT_BRACKET => 55,
             DOT => 60,
             LEFT_PAREN  => 75,
+
             _ => 0
         }
     }
 }
 
-impl Scanner {
-    fn scan(&mut self, tokens: &mut Vec<Token>) {
-        while !self.is_at_end() {
-            self.start = self.current;
-            let t = self.scan_token();
-            if t.is_some() {
-                tokens.push(t.unwrap());
-            }
-        }
-    }
-
-    fn scan_token(&mut self) -> Option<Token> {
-        let c = self.advance();
-        let mut t: Option<Token> = Option::None;
-        match c {
-            '(' => {
-                t = Option::Some(Token { val: String::from('('), ttype: LEFT_PAREN });
-            }
-            ')' => {
-                t = Option::Some(Token { val: String::from(')'), ttype: RIGHT_PAREN });
-            }
-            '[' => {
-                t = Option::Some(Token { val: String::from('['), ttype: LEFT_BRACKET });
-            }
-            ']' => {
-                t = Option::Some(Token { val: String::from(']'), ttype: RIGHT_BRACKET });
-            },
-            '{' => {
-                t = Option::Some(Token{ val: String::from('{'), ttype: LEFT_BRACE});
-            },
-            '}' => {
-                t = Option::Some(Token{ val: String::from('}'), ttype: RIGHT_BRACE});
-            },
-            '.' => {
-                t = Option::Some(Token{ val: String::from('.'), ttype: DOT});
-            },
-            ',' => {
-                t = Option::Some(Token{ val: String::from(','), ttype: COMMA});
-             },
-            '-' => {
-                t = Option::Some(Token{ val: String::from('-'), ttype: MINUS});
-             },
-            '+' => {
-                t = Option::Some(Token{ val: String::from('+'), ttype: PLUS});
-             },
-            '*' => {
-                t = Option::Some(Token{ val: String::from('*'), ttype: STAR});
-             },
-            '/' => {
-                let next = self.peek();
-                if next =='/' { // strip the comment
-                    self.advance();
-                    while self.peek() != '\n' && !self.is_at_end() {
-                        self.advance();
-                    }
-                }
-                else if next == '*' { // strip the multi-line comment
-                    self.advance();
-                    while !self.is_at_end() {
-                        let next = self.peek();
-                        if next == '*' {
-                            let next = self.peek_double();
-                            if next == '/' {
-                                self.advance();
-                                self.advance();
-                                break;
+impl Scanner<'_> {
+    fn scan(&mut self) -> VecDeque<TokenAndPos> {
+        let mut tokens: VecDeque<TokenAndPos> = VecDeque::new();
+        loop {
+            match self.filter.next() {
+            Some((pos, c)) => {
+                match c {
+                    '(' => tokens.push_back((LEFT_PAREN, pos)),
+                    ')' => tokens.push_back((RIGHT_PAREN, pos)),
+                    '[' => tokens.push_back((LEFT_BRACKET, pos)),
+                    ']' => tokens.push_back((RIGHT_BRACKET, pos)),
+                    '{' => tokens.push_back((LEFT_BRACE, pos)),
+                    '}' => tokens.push_back((RIGHT_BRACE, pos)),
+                    '.' => tokens.push_back((DOT, pos)),
+                    ',' => tokens.push_back((COMMA, pos)),
+                    '-' => tokens.push_back((MINUS, pos)),
+                    '+' => tokens.push_back((PLUS, pos)),
+                    '*' => tokens.push_back((STAR, pos)),
+                    '/' => {
+                        if self.match_char('/') { // strip the comment
+                            while !self.match_char('\n') {
+                                if let None = self.advance() {
+                                    break;
+                                }
                             }
                         }
+                        else if self.match_char('*') { // strip the multi-line comment
+                            self.read_multiline_comment(pos);
+                        }
+                        else {
+                            tokens.push_back((SLASH, pos));
+                        }
+                    },
+                    '&' => tokens.push_back((AMPERSAND, pos)),
+                    '|' => tokens.push_back((UNION, pos)),
+                    '~' => tokens.push_back((EQUIVALENT, pos)),
+                    '!' => {
+                        if self.match_char('=') {
+                            tokens.push_back((NOT_EQUAL, pos));
+                        }
+                        else if self.match_char('~') {
+                            tokens.push_back((NOT_EQUIVALENT, pos));
+                        }
+                        else {
+                            tokens.push_back((NOT, pos));
+                        }
+                    },
+                    '=' => tokens.push_back((EQUAL, pos)),
+                    '<' => {
+                        if self.match_char('=') {
+                            tokens.push_back((LESS_EQUAL, pos));
+                        }
+                        else {
+                            tokens.push_back((LESS, pos));
+                        }
+                    },
+                    '>' => {
+                        if self.match_char('=') {
+                            tokens.push_back((GREATER_EQUAL, pos));
+                        }
+                        else {
+                            tokens.push_back((GREATER, pos));
+                        }
+                    },
+                    '@' => {
+                        //t = self.read_datetime();
+                    },
+                    '\'' => {
+                        let t = self.read_string(pos);
+                        if let Some(s) = t {
+                            tokens.push_back((s, pos));
+                        }
+                    },
+                    '%' => {
+                        let id= self.read_env_var(pos);
+                        tokens.push_back((CONSTANT(id), pos));
+                    },
+                    '`' => {
+                        let id = self.read_identifier(' ', pos);
+                        if !self.match_char('`') {
+                            self.errors.push(format!("missing end quote for identifier '{}' starting at position {}", &id, pos));
+                        }
+                        else {
+                            tokens.push_back((IDENTIFIER(id), pos));
+                        }
+                    },
+                    ' ' | '\t' | '\n' | '\r' => {
+                        // eat it
+                    },
+                    _ => {
+                        if self.is_digit(c) {
+                            let t = self.read_number(c);
+                            tokens.push_back((t, pos));
+                        }
+                        else {
+                            let id = self.read_identifier(c, pos);
+                            if let Some(k) = KEYWORDS.get(id.to_lowercase().as_str()) {
+                                tokens.push_back((k.clone(), pos));
+                            }
+                            else {
+                                tokens.push_back((IDENTIFIER(id), pos));
+                            }
+                        }
+                    }
+                }
+            },
+              None => {
+                    break;
+              }
+            }
+        }
+        tokens
+    }
+
+    fn read_number(&mut self, first_digit: char) -> Token {
+        let mut n = String::new();
+        n.push(first_digit);
+        loop {
+            match self.filter.peek() {
+                Some((pos, c)) => {
+                    let c = *c;
+                    if self.is_digit(c) || c == '.' {
+                        n.push(c);
                         self.advance();
                     }
-                }
-                else {
-                    t = Option::Some(Token{ val: String::from('/'), ttype: SLASH});
-                }
-            },
-            '&' => {
-                t = Option::Some(Token{ val: String::from('&'), ttype: AMPERSAND});
-            },
-            '|' => {
-                t = Option::Some(Token{ val: String::from('|'), ttype: UNION});
-            },
-            '~' => {
-                t = Option::Some(Token{ val: String::from('~'), ttype: EQUIVALENT});
-            },
-            '!' => {
-                let next = self.peek();
-                if next == '=' {
-                    t = self.create_token ("!=", NOT_EQUAL);
-                    self.advance();
-                }
-                else if next == '~' {
-                    t = self.create_token ("!~", NOT_EQUIVALENT);
-                    self.advance();
-                }
-                else {
-                    t = self.create_token ("!", NOT);
-                }
-            },
-            '=' => {
-                t = self.create_token ("=", EQUAL);
-            },
-            '<' => {
-                if self.match_char('=') {
-                    t = self.create_token ("<=", LESS_EQUAL);
-                }
-                else {
-                    t = self.create_token ("<", LESS);
-                }
-            },
-            '>' => {
-                if self.match_char('=') {
-                    t = self.create_token (">=", GREATER_EQUAL);
-                }
-                else {
-                    t = self.create_token (">", GREATER);
-                }
-            },
-            '@' => {
-                //t = self.read_datetime();
-            },
-            '\'' => {
-                t = self.read_string();
-            },
-            '%' => {
-                t = self.read_identifier();
-                t.as_mut().unwrap().ttype = CONSTANT;
-            },
-            '`' => {
-                t = self.read_identifier();
-                if !self.match_char('`') {
-                    // TODO throw an Err("")
-                }
-                t.as_mut().unwrap().ttype = IDENTIFIER;
-                self.advance();
-            },
-            ' ' | '\t' | '\n' | '\r' => {
-                // eat it
-            },
-            _ => {
-                if self.is_digit(c) {
-                    t = self.read_number();
-                }
-                else {
-                    t = self.read_identifier();
-                }
-            }
-        }
-
-        t
-    }
-
-    fn read_number(&mut self) -> Option<Token> {
-        let begin = self.start;
-        while self.is_digit(self.peek()) {
-            self.advance();
-        }
-
-        if self.peek() == '.' && self.is_digit(self.peek_double()) {
-            self.advance();
-
-            while self.is_digit(self.peek()) {
-                self.advance();
-            }
-        }
-
-        let val: String = self.filter[begin .. self.current].iter().collect();
-        let t = Token{val, ttype: NUMBER};
-        Option::Some(t)
-    }
-
-    fn read_identifier(&mut self) -> Option<Token> {
-        while self.is_alpha_numeric(self.peek()) {
-            self.advance();
-        }
-
-        let mut val: String = self.filter[self.start .. self.current].iter().collect();
-        let mut tt: TokenType = IDENTIFIER;
-        if let Some(k) = KEYWORDS.get(val.as_str()) {
-            tt = *k;
-        }
-
-        Option::Some(Token { val, ttype: tt })
-    }
-
-    fn read_string(&mut self) -> Option<Token> {
-        let mut prev: char = '\'';
-        let mut c: char = '\0';
-        let mut val: Vec<char> = vec!();
-        while !self.is_at_end() {
-            c = self.peek();
-            if c == '\'' && prev != '\\' {
-                break;
-            }
-            c = self.advance();
-            match c {
-                '\\' => {
-                    if prev == '\\' {
-                        val.push(c);
+                    else {
+                        break;
                     }
-                }
-                _ => {
-                    val.push(c);
+                },
+                None => {
+                    break;
                 }
             }
-            prev = c;
         }
 
-        if self.is_at_end() || c != '\'' {
-            let s: String = val.iter().collect();
-            self.errors.push(format!("invalid string '{}' starting at position {}", s, self.start));
-            return Option::None;
+        NUMBER(n)
+    }
+
+    fn read_identifier(&mut self, first_char: char, start: usize) -> String {
+        let mut id = String::new();
+        if first_char != ' ' {
+            id.push(first_char);
         }
 
-        self.advance();
-
-        Option::Some(Token { val: val.iter().collect(), ttype: STRING })
-    }
-
-    fn advance(&mut self) -> char {
-        let c = self.filter[self.current];
-        self.current += 1;
-        c
-    }
-
-    fn peek(&self) -> char {
-        if self.is_at_end() {
-            return '\0';
+        loop {
+            match self.filter.peek() {
+                Some((_, c)) => {
+                    let c = *c;
+                    if self.is_alpha_numeric(c) {
+                        self.filter.next();
+                        id.push(c);
+                    }
+                    else {
+                        break;
+                    }
+                },
+                None => {
+                    break;
+                }
+            }
         }
 
-        self.filter[self.current]
-    }
-
-    fn peek_double(&self) -> char {
-        let i = self.current + 2;
-        if i >= self.len {
-            return '\0';
+        if id.len() == 0 {
+            self.errors.push(format!("invalid identifier '{}' starting at position {}", &id, start));
         }
-        self.filter[i]
+
+        id
     }
 
+    fn read_string(&mut self, start: usize) -> Option<Token> {
+        let mut prev: char = '\'';
+        let mut s = String::new();
+        loop {
+            match self.filter.next() {
+                Some((pos, c)) => {
+                    if c == '\'' && prev != '\\' {
+                        break;
+                    }
+                    match c {
+                        '\\' => {
+                            if prev == '\\' {
+                                s.push(c);
+                            }
+                        }
+                        _ => {
+                            s.push(c);
+                        }
+                    }
+                    prev = c;
+                },
+                None => {
+                    self.errors.push(format!("invalid string '{}' starting at position {}", &s, start));
+                    return Option::None;
+                }
+            }
+        }
+
+        Option::Some(STRING(s))
+    }
+
+    fn read_multiline_comment(&mut self, start: usize) {
+        loop  {
+            match self.filter.next() {
+                Some((_, a)) => {
+                    if self.match_char('*') {
+                        if self.match_char('/') {
+                            break;
+                        }
+                    }
+                },
+                None => {
+                    self.errors.push(format!("multiline comment starting at {} was not closed properly", start));
+                    break;
+                }
+            }
+        }
+    }
+
+    fn read_env_var(&mut self, start: usize) -> String {
+        let id;
+        if self.match_char('`') {
+            id = self.read_identifier(' ', start);
+            if !self.match_char('`') {
+                self.errors.push(format!("missing end backtick for constant '{}' starting at position {}", &id, start));
+            }
+        }
+        else if self.match_char('\'') {
+            id = self.read_identifier(' ', start);
+            if !self.match_char('\'') {
+                self.errors.push(format!("missing end quote for constant '{}' starting at position {}", &id, start));
+            }
+        }
+        else {
+            id = self.read_identifier(' ', start);
+        }
+
+        id
+    }
+
+    #[inline]
+    fn advance(&mut self) -> Option<(usize, char)> {
+        self.filter.next()
+    }
+
+    #[inline]
     fn match_char(&mut self, expected: char) -> bool {
-        if self.is_at_end() {
+        let c = self.filter.peek();
+        if c.is_none() {
             return false;
         }
-
-        if self.filter[self.current] != expected {
-            return false;
+        let (_, c) = *c.unwrap();
+        if c == expected {
+            self.advance();
+            return true;
         }
 
-        self.current += 1;
-        return true;
+        false
     }
 
-    fn is_at_end(&self) -> bool {
-        self.current >= self.len
-    }
-
+    #[inline]
     fn is_alpha_numeric(&self, c: char) -> bool {
         self.is_alpha(c) || self.is_digit(c)
     }
 
+    #[inline]
     fn is_alpha(&self, c: char) -> bool {
         (c >= 'a' && c <= 'z') ||
         (c >= 'A' && c <= 'Z') ||
         c == '_'
     }
 
+    #[inline]
     fn is_digit(&self, c: char) -> bool {
         return c >= '0' && c <= '9';
-    }
-
-    fn create_token(&self, val: &str, ttype: TokenType) -> Option<Token> {
-        Option::Some(Token{ val: String::from(val), ttype})
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::scanner::scan_tokens;
     use std::process::Command;
 
-    struct FilterCandidate {
-        filter: String,
+    use crate::rapath::scanner::scan_tokens;
+
+    struct FilterCandidate<'a> {
+        filter: &'a str,
         token_count: usize,
         error_count: usize
     }
     #[test]
     fn test_scaning() {
         let mut candidates: Vec<FilterCandidate> = vec!();
-        let c1 = FilterCandidate{ filter: String::from("1+1"), token_count: 3, error_count: 0};
+        let c1 = FilterCandidate{ filter: "1+1", token_count: 4, error_count: 0};
+        candidates.push(c1);
+        let c1 = FilterCandidate{ filter: "Patient.name.first(1+1)", token_count: 11, error_count: 0};
+        candidates.push(c1);
 
         println!("begin scanning");
         for c in &candidates {
-            let r = scan_tokens(&c.filter);
+            let r = scan_tokens(c.filter);
             if r.is_ok() {
                 let tokens = r.as_ref().unwrap();
                 println!("{:?}", &tokens);
@@ -512,24 +540,24 @@ mod tests {
         }
     }
 
-    //#[test]
+    #[test]
     fn test_using_abnfgen() {
         let mut abnfgen = Command::new("abnfgen");
-        abnfgen.arg("-c").arg("search-filter.abnf");
+        abnfgen.arg("-c").arg("-y 20").arg("fhirpath.abnf");
         if abnfgen.output().is_err() {
             println!("abnfgen command failed, skipping fuzzing of filter scanner. Check the path of abnfgen and try again.");
             return;
         }
 
-        let n = 2000;
+        let n = 200;
         println!("testing scanner with {} generated filters", n);
         for _ in 1..n {
             let out = abnfgen.output().unwrap();
             let filter = String::from_utf8(out.stdout).unwrap();
             let filter = filter.replace("\n", "");
             let filter = filter.replace("\r", "");
-            //println!("scanning: {}", &filter);
-            let r = scan_tokens(&filter);
+            println!("scanning: {}", filter);
+            let r = scan_tokens(filter.as_str());
             if r.is_err() {
                 let se = r.err().unwrap();
                 println!("{:?}\n{}", &se, filter);

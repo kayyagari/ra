@@ -152,3 +152,6 @@ LINECOMMENT
 ESCUNICODE
         = "\\u" HEXDIG HEXDIG HEXDIG HEXDIG
         ;
+QUOTE
+        = "'"
+        ;
