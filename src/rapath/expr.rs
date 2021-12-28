@@ -7,33 +7,34 @@ use crate::search::EvalError;
 use crate::parser::ParseError;
 use crate::rapath::scanner::Token::*;
 use crate::rapath::expr::N::Decimal;
+use rawbson::elem::Element;
 
 #[derive(Debug)]
-pub enum Ast {
+pub enum Ast<'a> {
     Path {
       name: String
     },
     SubExpr {
-        lhs: Box<Ast>,
-        rhs: Box<Ast>
+        lhs: Box<Ast<'a>>,
+        rhs: Box<Ast<'a>>
     },
     Binary {
-        lhs: Box<Ast>,
+        lhs: Box<Ast<'a>>,
         op: Operator,
-        rhs: Box<Ast>
+        rhs: Box<Ast<'a>>
     },
     Function {
         name: String,
-        args: Vec<Ast>
+        args: Vec<Ast<'a>>
     },
     Index {
         idx: u32
     },
     Literal {
-        val: SystemType
+        val: SystemType<'a>
     },
     EnvVariable {
-        val: SystemType
+        val: SystemType<'a>
     }
 }
 
@@ -52,14 +53,15 @@ pub enum Operator {
 }
 
 #[derive(Debug)]
-pub enum SystemType {
+pub enum SystemType<'a> {
     Boolean(bool),
     String(String),
     Number(SystemNumber),
     DateTime(SystemDateTime),
     Time(SystemTime),
     Quantity(SystemQuantity),
-    Collection(Collection<SystemType>)
+    Element(Element<'a>),
+    Collection(Collection<SystemType<'a>>)
 }
 
 #[derive(Debug)]
@@ -99,20 +101,6 @@ pub struct SystemQuantity {
 #[derive(Debug)]
 pub struct Collection<T> {
     pub val: Vec<T>
-}
-
-#[derive(Debug)]
-pub struct FunctionExpr {
-    pub ctx_path: String,
-    pub name: String,
-    pub params: Vec<Box<Ast>>
-}
-
-#[derive(Debug)]
-pub struct BinaryExpr {
-    pub left: Box<Ast>,
-    pub right: Box<Ast>,
-    pub op: Token
 }
 
 impl<T> Collection<T> {

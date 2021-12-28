@@ -9,14 +9,14 @@ struct Parser {
     tokens: VecDeque<TokenAndPos>
 }
 
-pub fn parse(mut tokens: VecDeque<TokenAndPos>) -> Result<Ast, ParseError> {
+pub fn parse<'a>(mut tokens: VecDeque<TokenAndPos>) -> Result<Ast<'a>, ParseError> {
     let mut p = Parser{ tokens };
 
     p.parse()
 }
 
-impl Parser {
-    fn parse(&mut self) -> Result<Ast, ParseError> {
+impl<'a> Parser {
+    fn parse(&mut self) -> Result<Ast<'a>, ParseError> {
         let e = self.expression(0)?;
         if self.peek().0 != EOF {
             return Err(ParseError{msg: String::from("invalid expression, it was not completely parsed")});
@@ -24,7 +24,7 @@ impl Parser {
         Ok(e)
     }
 
-    fn expression(&mut self, rbp: usize) -> Result<Ast, ParseError> {
+    fn expression(&mut self, rbp: usize) -> Result<Ast<'a>, ParseError> {
         let mut left = self.null_denotation();
         while rbp < self.peek().0.lbp() {
             left = self.left_denotation(Box::new(left?));
@@ -32,7 +32,7 @@ impl Parser {
         left
     }
 
-    fn null_denotation(&mut self) -> Result<Ast, ParseError> {
+    fn null_denotation(&mut self) -> Result<Ast<'a>, ParseError> {
         let (t, pos) = self.advance();
         match t {
             LEFT_BRACE => {
@@ -92,7 +92,7 @@ impl Parser {
         }
     }
 
-    fn left_denotation(&mut self, left: Box<Ast>) -> Result<Ast, ParseError> {
+    fn left_denotation(&mut self, left: Box<Ast<'a>>) -> Result<Ast<'a>, ParseError> {
         let (t, pos) = self.advance();
         match t {
             DOT => {
@@ -153,7 +153,7 @@ impl Parser {
         }
     }
 
-    fn parse_function_args(&mut self) -> Result<Vec<Ast>, ParseError> {
+    fn parse_function_args(&mut self) -> Result<Vec<Ast<'a>>, ParseError> {
         let mut args = Vec::new();
 
         while self.peek().0 != RIGHT_PAREN {
