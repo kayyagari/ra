@@ -50,7 +50,7 @@ impl Parser {
                 Ok(Ast::Literal {val: SystemType::String(s)})
             },
             IDENTIFIER(id) => {
-                Ok(Ast::Identifier {name: id})
+                Ok(Ast::Path {name: id})
             },
             CONSTANT(c) => {
                 Ok(Ast::EnvVariable {val: SystemType::String(c)})
@@ -135,7 +135,7 @@ impl Parser {
                 })
             },
             LEFT_PAREN => match *left {
-                Ast::Identifier {name: n, ..} => {
+                Ast::Path {name: n, ..} => {
                     let args = self.parse_function_args()?;
                     let f = Ast::Function {
                         name: n,

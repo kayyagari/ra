@@ -10,7 +10,7 @@ use crate::rapath::expr::N::Decimal;
 
 #[derive(Debug)]
 pub enum Ast {
-    Identifier {
+    Path {
       name: String
     },
     SubExpr {
