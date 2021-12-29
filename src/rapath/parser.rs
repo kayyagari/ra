@@ -1,9 +1,13 @@
-use crate::parser::ParseError;
-use crate::rapath::expr::{Ast, Operator, Collection, SystemType, SystemNumber};
-use crate::rapath::scanner::{TokenAndPos, Token};
-use crate::rapath::scanner::Token::*;
+use std::borrow::Borrow;
 use std::collections::VecDeque;
+use std::rc::Rc;
+
+use crate::parser::ParseError;
+use crate::rapath::expr::{Ast, Operator};
 use crate::rapath::expr::Ast::Literal;
+use crate::rapath::scanner::{Token, TokenAndPos};
+use crate::rapath::scanner::Token::*;
+use crate::rapath::stypes::{Collection, SystemNumber, SystemType};
 
 struct Parser {
     tokens: VecDeque<TokenAndPos>
@@ -38,16 +42,16 @@ impl<'a> Parser {
             LEFT_BRACE => {
                 self.consume(&RIGHT_BRACE)?;
                 let c: Collection<SystemType> = Collection::new();
-                Ok(Ast::Literal {val: SystemType::Collection(c)} )
+                Ok(Ast::Literal {val: Rc::new(SystemType::Collection(c))} )
             },
             TRUE => {
-                Ok(Ast::Literal {val: SystemType::Boolean(true)})
+                Ok(Ast::Literal {val: Rc::new(SystemType::Boolean(true))})
             },
             FALSE => {
-                Ok(Ast::Literal {val: SystemType::Boolean(false)})
+                Ok(Ast::Literal {val: Rc::new(SystemType::Boolean(false))})
             },
             STRING(s) => {
-                Ok(Ast::Literal {val: SystemType::String(s)})
+                Ok(Ast::Literal {val: Rc::new(SystemType::String(s))})
             },
             IDENTIFIER(id) => {
                 Ok(Ast::Path {name: id})
@@ -59,7 +63,7 @@ impl<'a> Parser {
                 // TODO separate integer and decimal
                 // TODO handle quantity
                 let sd = SystemNumber::from(&n)?;
-                Ok(Ast::Literal {val: SystemType::Number(sd)})
+                Ok(Ast::Literal {val: Rc::new(SystemType::Number(sd))})
             },
             LEFT_PAREN => {
                 let e = self.expression(0)?;
@@ -72,17 +76,16 @@ impl<'a> Parser {
             MINUS => {
                 let mut e = self.expression(0)?;
                 match e {
-                    Ast::Literal{val: ref mut v} => {
-                        if let SystemType::Number(ref mut n) = v {
-                            n.to_negative_val();
-                            Ok(e)
+                    Ast::Literal{mut val} => {
+                        if let SystemType::Number(ref n) = &*val {
+                            Ok(Ast::Literal {val: Rc::new(SystemType::Number(n.to_negative_val()))})
                         }
                         else {
-                            return Err(ParseError{msg: format!("unary minus operator cannot be applied on a non-numeric value {:?}", &v)});
+                            return Err(ParseError{msg: format!("unary minus operator cannot be applied on a non-numeric value {:?}", &val)});
                         }
                     },
                     _ => {
-                        Err(ParseError{msg: format!("invalid token type {:?} for applying - operator", t)})
+                        Err(ParseError{msg: format!("invalid token type {:?} for applying unary minus operator", t)})
                     }
                 }
             }
@@ -235,7 +238,7 @@ impl<'a> Parser {
 
 #[cfg(test)]
 mod tests {
-    use crate::rapath::parser::{parse};
+    use crate::rapath::parser::parse;
     use crate::rapath::scanner::{scan_tokens, Token};
 
     struct ExprCandidate<'a> {

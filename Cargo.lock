@@ -67,15 +67,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -955,7 +946,6 @@ name = "ra"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bincode",
  "bson",
  "chrono",
  "crc32fast",
@@ -1054,8 +1044,6 @@ dependencies = [
 [[package]]
 name = "rawbson"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cd412948648b33d2fc1cb527409045f071f78a57ae1d36f0a50ddbe72a6f678"
 dependencies = [
  "bson",
  "chrono",
