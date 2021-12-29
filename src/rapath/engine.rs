@@ -45,7 +45,7 @@ pub fn add<'a>(lhs: Rc<SystemType<'a>>, rhs: Rc<SystemType<'a>>) -> Result<Rc<Sy
             Ok(Rc::new(SystemType::String(s)))
         },
         SystemType::Number(n) => {
-            let l = n.get_as_number().unwrap();
+            let l = n.as_i64();
             let r = rhs.get_as_number().unwrap();
             let sd = l + r;
             let sd = SystemNumber::new_integer(sd);
@@ -120,7 +120,7 @@ mod tests {
         //println!("{:?}", result.as_ref().err().unwrap());
         assert!(result.is_ok());
         let result = result.unwrap();
-        //assert_eq!(SystemTypeType::Number, result.get_type());
+        assert_eq!(SystemTypeType::Number, result.get_type());
         println!("{:?}", result);
     }
 }

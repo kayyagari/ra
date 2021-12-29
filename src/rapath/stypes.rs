@@ -17,7 +17,7 @@ pub enum SystemType<'a> {
     Collection(Collection<SystemType<'a>>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum SystemTypeType {
     Boolean,
     String,
@@ -42,17 +42,17 @@ enum N {
     // PositiveInt(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialOrd, PartialEq)]
 pub struct SystemDateTime {
     pub val: DateTime<Utc>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialOrd, PartialEq)]
 pub struct SystemTime {
     pub val: NaiveTime
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialOrd, PartialEq)]
 pub struct SystemConstant {
     pub val: String
 }
@@ -72,9 +72,6 @@ impl<T> Collection<T> {
     pub fn new() -> Self {
         Collection{val: vec![]}
     }
-}
-
-impl N {
 }
 
 impl SystemNumber {
@@ -114,13 +111,24 @@ impl SystemNumber {
         }
     }
 
-    pub fn get_as_number(&self) -> Option<i64> {
+    pub fn as_i64(&self) -> i64 {
         match self.val {
             N::Integer(i) => {
-                Some(i)
+                i
             },
             N::Decimal(d) => {
-                Some(d as i64)
+                d as i64
+            }
+        }
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        match self.val {
+            N::Integer(i) => {
+                i as f64
+            },
+            N::Decimal(d) => {
+                d
             }
         }
     }
@@ -163,7 +171,7 @@ impl<'a> SystemType<'a> {
     pub fn get_as_number(&self) -> Option<i64> {
         match self {
             SystemType::Number(n) => {
-                n.get_as_number()
+                Some(n.as_i64())
             },
             _ => {
                 None
@@ -186,5 +194,94 @@ impl<'a> SystemType<'a> {
                 None
             }
         }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match &*self {
+            SystemType::Boolean(b) => {
+                Some(*b)
+            },
+            SystemType::String(s) => {
+                let b = s.parse::<bool>();
+                if b.is_ok() {
+                    let b = b.unwrap();
+                    return Some(b);
+                }
+
+                return Some(false);
+            },
+            SystemType::Number(sd) => {
+                Some(sd.as_i64() > 0)
+            },
+            _ => {
+                None
+            }
+        }
+    }
+}
+
+impl Eq for SystemNumber {}
+impl PartialEq for SystemNumber {
+    fn eq(&self, other: &Self) -> bool {
+        match self.val {
+            N::Integer(i1) => {
+                i1 == other.as_i64()
+            },
+            N::Decimal(d1) => {
+                d1 == other.as_f64()
+            }
+        }
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        match self.val {
+            N::Integer(i1) => {
+                i1 != other.as_i64()
+            },
+            N::Decimal(d1) => {
+                d1 != other.as_f64()
+            }
+        }
+    }
+}
+
+impl<'a> Eq for SystemType<'a> {}
+impl<'a> PartialEq for SystemType<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.get_type() != other.get_type() {
+            return false;
+        }
+
+        match &*self {
+            SystemType::Boolean(b1) => {
+                if let SystemType::Boolean(b2) = other {
+                    return *b1 == *b2;
+                }
+            },
+            SystemType::String(s1) => {
+                if let SystemType::String(s2) = other {
+                    return *s1 == *s2;
+                }
+            },
+            SystemType::DateTime(dt1) => {
+                if let SystemType::DateTime(dt2) = other {
+                    return *dt1 == *dt2;
+                }
+            },
+            SystemType::Number(n1) => {
+                if let SystemType::Number(n2) = other {
+                    return *n1 == *n2;
+                }
+            },
+            _ => {
+                return false;
+            }
+        }
+
+        false
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        todo!()
     }
 }
