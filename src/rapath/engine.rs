@@ -88,7 +88,7 @@ mod tests {
     use rawbson::DocBuf;
     use rawbson::elem::Element;
 
-    use crate::rapath::stypes::SystemTypeType;
+    use crate::rapath::stypes::{SystemTypeType, SystemNumber};
     use crate::rapath::parser::parse;
     use crate::rapath::scanner::scan_tokens;
     use crate::rapath::stypes::SystemType;
@@ -122,5 +122,6 @@ mod tests {
         let result = result.unwrap();
         assert_eq!(SystemTypeType::Number, result.get_type());
         println!("{:?}", result);
+        assert_eq!(SystemType::Number(SystemNumber::new_integer(2)), *result);
     }
 }
