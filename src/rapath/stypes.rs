@@ -297,7 +297,43 @@ impl<'a> PartialEq for SystemType<'a> {
         false
     }
 
+    // the eq()'s code is duplicated and changed the operator and default return value
     fn ne(&self, other: &Self) -> bool {
-        todo!()
+        if self.get_type() != other.get_type() {
+            return true;
+        }
+
+        match &*self {
+            SystemType::Boolean(b1) => {
+                if let SystemType::Boolean(b2) = other {
+                    return *b1 != *b2;
+                }
+            },
+            SystemType::String(s1) => {
+                if let SystemType::String(s2) = other {
+                    return *s1 != *s2;
+                }
+            },
+            SystemType::DateTime(dt1) => {
+                if let SystemType::DateTime(dt2) = other {
+                    return *dt1 != *dt2;
+                }
+            },
+            SystemType::Number(n1) => {
+                if let SystemType::Number(n2) = other {
+                    return *n1 != *n2;
+                }
+            },
+            SystemType::Quantity(q1) => {
+                if let SystemType::Quantity(q2) = other {
+                    return *q1 != *q2;
+                }
+            },
+            _ => {
+                return true;
+            }
+        }
+
+        true
     }
 }
