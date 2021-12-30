@@ -245,6 +245,17 @@ impl PartialEq for SystemNumber {
     }
 }
 
+impl Eq for SystemQuantity {}
+impl PartialEq for SystemQuantity {
+    fn eq(&self, other: &Self) -> bool {
+        self.unit == other.unit && self.val == other.val
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self.unit != other.unit || self.val != other.val
+    }
+}
+
 impl<'a> Eq for SystemType<'a> {}
 impl<'a> PartialEq for SystemType<'a> {
     fn eq(&self, other: &Self) -> bool {
@@ -271,6 +282,11 @@ impl<'a> PartialEq for SystemType<'a> {
             SystemType::Number(n1) => {
                 if let SystemType::Number(n2) = other {
                     return *n1 == *n2;
+                }
+            },
+            SystemType::Quantity(q1) => {
+                if let SystemType::Quantity(q2) = other {
+                    return *q1 == *q2;
                 }
             },
             _ => {
