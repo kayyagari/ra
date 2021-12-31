@@ -3,8 +3,7 @@ use std::fmt::{Display, Formatter, Write};
 use chrono::{DateTime, NaiveTime, Utc};
 
 use crate::rapath::scanner::{Token};
-use crate::search::EvalError;
-use crate::errors::ParseError;
+use crate::errors::{EvalError, ParseError};
 use crate::rapath::scanner::Token::*;
 use rawbson::elem::Element;
 use std::rc::Rc;

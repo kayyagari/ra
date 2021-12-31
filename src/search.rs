@@ -75,21 +75,9 @@ pub struct FilterError {
     msg: String
 }
 
-#[derive(Debug)]
-pub struct EvalError {
-    pub msg: String
-}
-
 impl Error for FilterError{}
-impl Error for EvalError{}
 
 impl Display for FilterError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.msg.as_str())
-    }
-}
-
-impl Display for EvalError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.msg.as_str())
     }
