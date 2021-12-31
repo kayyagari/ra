@@ -2,7 +2,7 @@ use std::fmt::Display;
 use serde_json::ser::Formatter;
 use rawbson::elem::Element;
 use chrono::{DateTime, Utc, NaiveTime};
-use crate::parser::ParseError;
+use crate::errors::ParseError;
 use crate::rapath::stypes::N::{Integer, Decimal};
 
 #[derive(Debug)]
@@ -86,7 +86,7 @@ impl SystemNumber {
     pub fn from(s: &String) -> Result<SystemNumber, ParseError> {
         let n = s.parse::<f64>();
         if let Err(e) = n {
-            return Err(ParseError{msg: format!("{}", e)});
+            return Err(ParseError::new(format!("{}", e)));
         }
         let n = n.unwrap();
         let sd: SystemNumber;

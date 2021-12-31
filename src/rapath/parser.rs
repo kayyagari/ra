@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use crate::parser::ParseError;
+use crate::errors::ParseError;
 use crate::rapath::expr::{Ast, Operator};
 use crate::rapath::expr::Ast::Literal;
 use crate::rapath::scanner::{Token, TokenAndPos};
@@ -23,7 +23,7 @@ impl<'a> Parser {
     fn parse(&mut self) -> Result<Ast<'a>, ParseError> {
         let e = self.expression(0)?;
         if self.peek().0 != EOF {
-            return Err(ParseError{msg: String::from("invalid expression, it was not completely parsed")});
+            return Err(ParseError::from_str("invalid expression, it was not completely parsed"));
         }
         Ok(e)
     }
@@ -81,16 +81,16 @@ impl<'a> Parser {
                             Ok(Ast::Literal {val: Rc::new(SystemType::Number(n.to_negative_val()))})
                         }
                         else {
-                            return Err(ParseError{msg: format!("unary minus operator cannot be applied on a non-numeric value {:?}", &val)});
+                            return Err(ParseError::new(format!("unary minus operator cannot be applied on a non-numeric value {:?}", &val)));
                         }
                     },
                     _ => {
-                        Err(ParseError{msg: format!("invalid token type {:?} for applying unary minus operator", t)})
+                        Err(ParseError::new(format!("invalid token type {:?} for applying unary minus operator", t)))
                     }
                 }
             }
             _ => {
-                Err(ParseError{msg: format!("unexpected token {}", t)})
+                Err(ParseError::new(format!("unexpected token {}", t)))
             }
         }
     }
@@ -147,11 +147,11 @@ impl<'a> Parser {
                     Ok(f)
                 }
                 _ => {
-                    Err(ParseError{msg: format!("invalid function name {}", t)})
+                    Err(ParseError::new(format!("invalid function name {}", t)))
                 }
             }
             _ => {
-                Err(ParseError{msg: format!("unexpected token on rhs {}", t)})
+                Err(ParseError::new(format!("unexpected token on rhs {}", t)))
             }
         }
     }
@@ -166,7 +166,7 @@ impl<'a> Parser {
             if self.peek().0 == COMMA {
                 self.advance();
                 if self.peek().0 != RIGHT_PAREN {
-                    return Err(ParseError{msg: String::from("invalid trailing comma in function arguments")});
+                    return Err(ParseError::from_str("invalid trailing comma in function arguments"));
                 }
             }
         }
@@ -180,7 +180,7 @@ impl<'a> Parser {
             return Ok(self.advance());
         }
         let (found, pos) = self.peek();
-        Err(ParseError{msg: format!("expected token {} but found {}", &tt, found)})
+        Err(ParseError::new(format!("expected token {} but found {}", &tt, found)))
     }
 
     #[inline]

@@ -5,37 +5,17 @@ use std::rc::Rc;
 
 use rawbson::elem::Element;
 
+use crate::errors::EvalError;
 use crate::rapath::expr::Ast;
 use crate::rapath::expr::Ast::*;
 use crate::rapath::expr::Operator::*;
-use crate::rapath::stypes::{Collection, SystemType, SystemNumber};
+use crate::rapath::stypes::{Collection, SystemNumber, SystemType};
 
 // pub struct ExecContext<'a> {
 //     env_vars: &'a HashMap<String, String>
 // }
 
 pub type EvalResult<'a> = Result<SystemType<'a>, EvalError>;
-
-#[derive(Debug)]
-pub struct EvalError {
-    msg: String
-}
-impl Error for EvalError{}
-impl Display for EvalError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.msg.as_str())
-    }
-}
-
-impl EvalError {
-    pub fn new(msg: String) -> Self {
-        EvalError{msg}
-    }
-
-    pub fn from_str(msg: &str) -> Self {
-        EvalError{msg: String::from(msg)}
-    }
-}
 
 impl<'a> SystemType<'a> {
     pub fn add(&self, rhs: Rc<SystemType<'a>>) -> Result<Rc<SystemType<'a>>, EvalError> {
@@ -90,9 +70,9 @@ mod tests {
     use rawbson::DocBuf;
     use rawbson::elem::Element;
 
-    use crate::rapath::stypes::{SystemTypeType, SystemNumber};
     use crate::rapath::parser::parse;
     use crate::rapath::scanner::scan_tokens;
+    use crate::rapath::stypes::{SystemNumber, SystemTypeType};
     use crate::rapath::stypes::SystemType;
 
     #[test]

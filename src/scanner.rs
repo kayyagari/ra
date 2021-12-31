@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use lazy_static::lazy_static;
 use std::fmt::{Display, Formatter};
 use std::error::Error;
+use crate::errors::ScanError;
 
 lazy_static! {
  pub static ref OPERATORS: HashMap<&'static str, ComparisonOperator> = {
@@ -62,11 +63,6 @@ pub enum ComparisonOperator {
 }
 
 #[derive(Debug)]
-pub struct ScanError {
-    pub errors: Vec<String>
-}
-
-#[derive(Debug)]
 pub struct Token {
     pub val: String,
     pub ttype: TokenType,
@@ -106,21 +102,6 @@ pub fn scan_tokens(filter: &String) -> Result<Vec<Token>, ScanError> {
     }
 
     Ok(tokens)
-}
-
-impl Error for ScanError{
-    fn description(&self) -> &str {
-        "filter parsing error"
-    }
-}
-
-impl Display for ScanError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for e in &self.errors {
-            f.write_str(e.as_str())?;
-        }
-        Ok(())
-    }
 }
 
 impl Display for TokenType {

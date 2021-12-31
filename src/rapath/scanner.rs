@@ -2,9 +2,11 @@ use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
-use std::str::{CharIndices};
+use std::str::CharIndices;
 
 use lazy_static::lazy_static;
+
+use crate::errors::ScanError;
 
 use self::Token::*;
 
@@ -51,12 +53,6 @@ lazy_static! {
 struct Scanner<'a> {
     filter: Peekable<CharIndices<'a>>,
     errors: Vec<String>
-}
-
-
-#[derive(Debug)]
-pub struct ScanError {
-    pub errors: Vec<String>
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -106,21 +102,6 @@ pub fn scan_tokens(filter: &str) -> Result<VecDeque<TokenAndPos>, ScanError> {
     tokens.push_back((EOF, filter.len()));
 
     Ok(tokens)
-}
-
-impl Error for ScanError {
-    fn description(&self) -> &str {
-        "filter parsing error"
-    }
-}
-
-impl Display for ScanError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for e in &self.errors {
-            f.write_str(e.as_str())?;
-        }
-        Ok(())
-    }
 }
 
 impl Display for Token {

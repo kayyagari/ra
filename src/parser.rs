@@ -1,8 +1,10 @@
-use crate::scanner::*;
-use crate::scanner::TokenType::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+
+use crate::errors::ParseError;
 use crate::parser::ExprType::*;
+use crate::scanner::*;
+use crate::scanner::TokenType::*;
 
 struct Parser {
     tokens: Vec<Token>,
@@ -24,11 +26,6 @@ pub enum ExprType {
 pub trait Expr {
     fn get_type(&self) -> ExprType;
     fn to_string(&self) -> String;
-}
-
-#[derive(Debug)]
-pub struct ParseError {
-    pub msg: String
 }
 
 #[derive(Debug)]
@@ -126,14 +123,6 @@ impl Expr for NotExpr{
     }
 }
 
-impl Error for ParseError{}
-
-impl Display for ParseError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.msg.as_str())
-    }
-}
-
 pub fn parse(mut tokens: Vec<Token>) -> Result<Box<dyn Expr>, ParseError> {
     let eof = Token{ val: String::from(""), ttype: TokenType::EOF};
     tokens.push(eof);
@@ -153,7 +142,7 @@ impl Parser {
                     if e.is_some() {
                         let prev_type = e.as_ref().unwrap().get_type();
                         if prev_type == SIMPLE || prev_type == CONDITIONAL {
-                            return Err(ParseError{msg: format!("invalid filter, two or more simple expressions must be bound by a logical expression")});
+                            return Err(ParseError::new(format!("invalid filter, two or more simple expressions must be bound by a logical expression")));
                         }
                     }
                     e = Option::Some(self.parse_expr()?);
@@ -170,7 +159,7 @@ impl Parser {
                     match op {
                         "and" => {
                             if e.is_none() {
-                                return Err(ParseError{msg: format!("invalid AND expression in filter")});
+                                return Err(ParseError::new(format!("invalid AND expression in filter")));
                             }
                             let mut and = Box::new(AndExpr{ children: vec![e.unwrap()] });
                             self.advance();
@@ -182,7 +171,7 @@ impl Parser {
                             if e.is_some() {
                                 let prev_type = e.as_ref().unwrap().get_type();
                                 if prev_type != AND || prev_type != OR {
-                                    return Err(ParseError{msg: format!("misplaced NOT expression in filter")});
+                                    return Err(ParseError::from_str("misplaced NOT expression in filter"));
                                 }
                             }
                             self.advance();
@@ -192,7 +181,7 @@ impl Parser {
                         },
                         "or" => {
                             if e.is_none() {
-                                return Err(ParseError{msg: format!("invalid OR expression in filter")});
+                                return Err(ParseError::new(format!("invalid OR expression in filter")));
                             }
                             let mut or = Box::new(OrExpr{children: vec!(e.unwrap())});
                             self.advance();
@@ -201,31 +190,31 @@ impl Parser {
                             e = Option::Some(or);
                         },
                         s => {
-                            return Err(ParseError{msg: format!("invalid filter expression, found {}", s)});
+                            return Err(ParseError::new(format!("invalid filter expression, found {}", s)));
                         }
                     }
                 },
                 RIGHT_PAREN => {
                     if self.open_paren_count - 1 < 0 {
-                        return Err(ParseError { msg: format!("invalid closing {}", RIGHT_PAREN) });
+                        return Err(ParseError::new(format!("invalid closing {}", RIGHT_PAREN)));
                     }
                     break;
                 },
                 RIGHT_BRACKET => {
                     if self.open_bracket_count - 1 < 0 {
-                        return Err(ParseError { msg: format!("invalid closing {}", RIGHT_BRACKET) });
+                        return Err(ParseError::new(format!("invalid closing {}", RIGHT_BRACKET)));
                     }
                     break;
                 },
                 t => {
-                    return Err(ParseError{msg: format!("invalid token type {}", t)});
+                    return Err(ParseError::new(format!("invalid token type {}", t)));
                 }
             }
 
         }
 
         if e.is_none() {
-            return Err(ParseError{msg: String::from("invalid filter")});
+            return Err(ParseError::from_str("invalid filter"));
         }
 
         Ok(e.unwrap())
@@ -266,7 +255,7 @@ impl Parser {
             return Ok(self.advance());
         }
         let found = self.peek();
-        Err(ParseError{msg: format!("expected token {} but found {} with value {}", tt, found.ttype, &found.val)})
+        Err(ParseError::new(format!("expected token {} but found {} with value {}", tt, found.ttype, &found.val)))
     }
 
     fn peek(&self) -> &Token {
@@ -300,9 +289,11 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use crate::scanner::scan_tokens;
-    use crate::parser::{parse, Expr, ParseError};
     use std::process::Command;
+
+    use crate::errors::ParseError;
+    use crate::parser::{Expr, parse};
+    use crate::scanner::scan_tokens;
 
     fn parse_filter(filter: &String) -> Result<Box<dyn Expr>, ParseError> {
         let tokens = scan_tokens(&filter).expect("failed to scan the filter");
