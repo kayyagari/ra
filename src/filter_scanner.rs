@@ -302,7 +302,7 @@ impl Scanner {
 
 #[cfg(test)]
 mod tests {
-    use crate::scanner::scan_tokens;
+    use crate::filter_scanner::scan_tokens;
     use std::process::Command;
 
     struct FilterCandidate {

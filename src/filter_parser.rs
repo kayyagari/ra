@@ -2,9 +2,9 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::errors::ParseError;
-use crate::parser::ExprType::*;
-use crate::scanner::*;
-use crate::scanner::TokenType::*;
+use crate::filter_parser::ExprType::*;
+use crate::filter_scanner::*;
+use crate::filter_scanner::TokenType::*;
 
 struct Parser {
     tokens: Vec<Token>,
@@ -292,8 +292,8 @@ mod tests {
     use std::process::Command;
 
     use crate::errors::ParseError;
-    use crate::parser::{Expr, parse};
-    use crate::scanner::scan_tokens;
+    use crate::filter_parser::{Expr, parse};
+    use crate::filter_scanner::scan_tokens;
 
     fn parse_filter(filter: &String) -> Result<Box<dyn Expr>, ParseError> {
         let tokens = scan_tokens(&filter).expect("failed to scan the filter");

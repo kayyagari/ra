@@ -1,7 +1,7 @@
 use crate::res_schema::{PropertyDef};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use crate::scanner::ComparisonOperator;
+use crate::filter_scanner::ComparisonOperator;
 use crate::dtypes::DataType;
 use chrono::{DateTime, Utc};
 
