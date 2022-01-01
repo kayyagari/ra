@@ -7,7 +7,7 @@ use crate::rapath::expr::{Ast, Operator};
 use crate::rapath::expr::Ast::Literal;
 use crate::rapath::scanner::{Token, TokenAndPos};
 use crate::rapath::scanner::Token::*;
-use crate::rapath::stypes::{Collection, SystemNumber, SystemType};
+use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
 
 struct Parser {
     tokens: VecDeque<TokenAndPos>
@@ -51,13 +51,13 @@ impl<'a> Parser {
                 Ok(Ast::Literal {val: Rc::new(SystemType::Boolean(false))})
             },
             STRING(s) => {
-                Ok(Ast::Literal {val: Rc::new(SystemType::String(s))})
+                Ok(Ast::Literal {val: Rc::new(SystemType::String(SystemString::new(s)))})
             },
             IDENTIFIER(id) => {
                 Ok(Ast::Path {name: id})
             },
             CONSTANT(c) => {
-                Ok(Ast::EnvVariable {val: SystemType::String(c)})
+                Ok(Ast::EnvVariable {val: SystemType::String(SystemString::new(c))})
             },
             NUMBER(n) => {
                 // TODO separate integer and decimal

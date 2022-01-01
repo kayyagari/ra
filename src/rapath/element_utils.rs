@@ -1,5 +1,5 @@
 use rawbson::elem::{Element, ElementType};
-use crate::rapath::stypes::{SystemNumber, SystemType};
+use crate::rapath::stypes::{SystemNumber, SystemString, SystemType};
 
 pub fn to_systype(el: Element) -> Option<SystemType> {
     match el.element_type() {
@@ -27,7 +27,7 @@ pub fn to_systype(el: Element) -> Option<SystemType> {
         ElementType::String => {
             let s = el.as_str();
             if let Ok(s) = s {
-                return Some(SystemType::String(String::from(s))); // FIXME avoid copying
+                return Some(SystemType::String(SystemString::from_slice(s)));
             }
         },
         ElementType::Boolean => {

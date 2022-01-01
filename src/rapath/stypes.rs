@@ -8,7 +8,7 @@ use crate::rapath::stypes::N::{Integer, Decimal};
 #[derive(Debug)]
 pub enum SystemType<'a> {
     Boolean(bool),
-    String(String), // TODO there should be one to accept &str as well, see element_utils.rs where &str is copied instead of reusing
+    String(SystemString<'a>),
     Number(SystemNumber),
     DateTime(SystemDateTime),
     Time(SystemTime),
@@ -61,6 +61,41 @@ pub struct SystemConstant {
 pub struct SystemQuantity {
     pub val: f64,
     pub unit: String
+}
+
+#[derive(Debug)]
+pub struct SystemString<'a> {
+    owned: Option<String>,
+    borrowed: Option<&'a str>
+}
+
+impl<'a> SystemString<'a> {
+    pub fn new(s: String) -> Self {
+        SystemString{owned: Some(s), borrowed: None}
+    }
+
+    pub fn from_slice(s: &'a str) -> Self {
+        SystemString{owned: None, borrowed: Some(s)}
+    }
+
+    pub fn as_str(&self) -> &str {
+        if let Some(s) = self.borrowed {
+            return s;
+        }
+
+        self.owned.as_ref().unwrap().as_str()
+    }
+}
+
+impl<'a> Eq for SystemString<'a>{}
+impl<'a> PartialEq for SystemString<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self.as_str() != other.as_str()
+    }
 }
 
 #[derive(Debug)]
@@ -198,7 +233,7 @@ impl<'a> SystemType<'a> {
     pub fn get_as_string(&self) -> Option<String> {
         match self {
             SystemType::String(s) => {
-                Some(s.clone())
+                Some(String::from(s.as_str()))
             },
             SystemType::Boolean(b) => {
                 Some(b.to_string())
@@ -218,7 +253,7 @@ impl<'a> SystemType<'a> {
                 Some(*b)
             },
             SystemType::String(s) => {
-                let b = s.parse::<bool>();
+                let b = s.as_str().parse::<bool>();
                 if b.is_ok() {
                     let b = b.unwrap();
                     return Some(b);

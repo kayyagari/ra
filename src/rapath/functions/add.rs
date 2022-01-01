@@ -1,14 +1,14 @@
 use std::rc::Rc;
 use crate::errors::EvalError;
-use crate::rapath::stypes::{SystemNumber, SystemType};
+use crate::rapath::stypes::{SystemNumber, SystemString, SystemType};
 
 impl<'a> SystemType<'a> {
     pub fn add(&self, rhs: Rc<SystemType<'a>>) -> Result<Rc<SystemType<'a>>, EvalError> {
         match self {
             SystemType::String(s) => {
                 let r = rhs.get_as_string().unwrap();
-                let s = format!("{}{}", s, r);
-                Ok(Rc::new(SystemType::String(s)))
+                let s = format!("{}{}", s.as_str(), r);
+                Ok(Rc::new(SystemType::String(SystemString::new(s))))
             },
             SystemType::Number(n) => {
                 let l = n.as_i64();
