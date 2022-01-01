@@ -8,13 +8,13 @@ use crate::rapath::stypes::N::{Integer, Decimal};
 #[derive(Debug)]
 pub enum SystemType<'a> {
     Boolean(bool),
-    String(String),
+    String(String), // TODO there should be one to accept &str as well, see element_utils.rs where &str is copied instead of reusing
     Number(SystemNumber),
     DateTime(SystemDateTime),
     Time(SystemTime),
     Quantity(SystemQuantity),
     Element(Element<'a>),
-    Collection(Collection<SystemType<'a>>)
+    Collection(Collection<'a>)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -64,13 +64,29 @@ pub struct SystemQuantity {
 }
 
 #[derive(Debug)]
-pub struct Collection<T> {
-    val: Vec<T>
+pub struct Collection<'a> {
+    val: Option<Vec<SystemType<'a>>>
 }
 
-impl<T> Collection<T> {
+impl<'a> Collection<'a> {
     pub fn new() -> Self {
-        Collection{val: vec![]}
+        Collection{val: Option::Some(vec!())}
+    }
+
+    pub fn new_empty() -> Self {
+        Collection{val: Option::None}
+    }
+
+    pub fn is_empty(&self) -> bool {
+        if self.val.is_none() {
+            return true;
+        }
+
+        return self.val.as_ref().unwrap().is_empty()
+    }
+
+    pub fn push(&mut self, st: SystemType<'a>) {
+        self.val.as_mut().unwrap().push(st);
     }
 }
 

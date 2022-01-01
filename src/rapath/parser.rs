@@ -41,7 +41,7 @@ impl<'a> Parser {
         match t {
             LEFT_BRACE => {
                 self.consume(&RIGHT_BRACE)?;
-                let c: Collection<SystemType> = Collection::new();
+                let c: Collection = Collection::new_empty();
                 Ok(Ast::Literal {val: Rc::new(SystemType::Collection(c))} )
             },
             TRUE => {
