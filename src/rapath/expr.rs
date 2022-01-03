@@ -51,3 +51,20 @@ pub enum Operator {
     And, Or, Xor,
     Union, Div, Mod, Is, As, Implies
 }
+
+impl<'a> Display for Ast<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use self::Ast::*;
+        let s = match self {
+            Path{..}=> "Path",
+            SubExpr{..} => "SubExpr",
+            Binary{..} => "Binary",
+            Function{..} => "Function",
+            Index{..} => "Index",
+            Literal{..} => "Literal",
+            EnvVariable{..} => "EnvVariable"
+        };
+
+        f.write_str(s)
+    }
+}

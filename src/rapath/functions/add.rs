@@ -1,9 +1,11 @@
 use std::rc::Rc;
+
 use crate::errors::EvalError;
+use crate::rapath::engine::EvalResult;
 use crate::rapath::stypes::{SystemNumber, SystemString, SystemType};
 
 impl<'a> SystemType<'a> {
-    pub fn add(&self, rhs: Rc<SystemType<'a>>) -> Result<Rc<SystemType<'a>>, EvalError> {
+    pub fn add(&self, rhs: &Rc<SystemType<'a>>) -> EvalResult<'a> {
         match self {
             SystemType::String(s) => {
                 let r = rhs.get_as_string().unwrap();

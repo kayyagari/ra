@@ -1,9 +1,12 @@
 use std::fmt::Display;
-use serde_json::ser::Formatter;
+use std::rc::Rc;
+
+use chrono::{DateTime, NaiveTime, Utc};
 use rawbson::elem::Element;
-use chrono::{DateTime, Utc, NaiveTime};
+use serde_json::ser::Formatter;
+
 use crate::errors::ParseError;
-use crate::rapath::stypes::N::{Integer, Decimal};
+use crate::rapath::stypes::N::{Decimal, Integer};
 
 #[derive(Debug)]
 pub enum SystemType<'a> {
@@ -65,7 +68,7 @@ pub struct SystemQuantity {
 
 #[derive(Debug)]
 pub struct SystemString<'a> {
-    owned: Option<String>,
+    owned: Option<String>, // TODO use SmartString to minimize allocations on heap
     borrowed: Option<&'a str>
 }
 
@@ -85,6 +88,10 @@ impl<'a> SystemString<'a> {
 
         self.owned.as_ref().unwrap().as_str()
     }
+
+    pub fn len(&self) -> usize {
+        self.as_str().len()
+    }
 }
 
 impl<'a> Eq for SystemString<'a>{}
@@ -100,7 +107,7 @@ impl<'a> PartialEq for SystemString<'a> {
 
 #[derive(Debug)]
 pub struct Collection<'a> {
-    val: Option<Vec<SystemType<'a>>>
+    pub val: Option<Vec<Rc<SystemType<'a>>>>
 }
 
 impl<'a> Collection<'a> {
@@ -113,15 +120,26 @@ impl<'a> Collection<'a> {
     }
 
     pub fn is_empty(&self) -> bool {
-        if self.val.is_none() {
-            return true;
+        if let Some(v) = &self.val {
+            return v.is_empty()
         }
 
-        return self.val.as_ref().unwrap().is_empty()
+        true
     }
 
-    pub fn push(&mut self, st: SystemType<'a>) {
+    pub fn push(&mut self, st: Rc<SystemType<'a>>) {
         self.val.as_mut().unwrap().push(st);
+    }
+
+    pub fn iter(&self) -> core::slice::Iter<Rc<SystemType<'a>>> {
+         self.val.as_ref().unwrap().iter()
+    }
+
+    pub fn len(&self) -> usize {
+        if let Some(v) = &self.val {
+            return v.len();
+        }
+        0
     }
 }
 
@@ -191,6 +209,21 @@ impl Display for SystemNumber {
     }
 }
 
+impl Clone for SystemNumber {
+    fn clone(&self) -> Self {
+        SystemNumber{val: self.val.clone()}
+    }
+}
+
+impl Clone for N {
+    fn clone(&self) -> Self {
+        match self {
+            Integer(i) => Integer(*i),
+            Decimal(d) => Decimal(*d)
+        }
+    }
+}
+
 impl Display for N {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -201,6 +234,24 @@ impl Display for N {
                 f.write_str(d.to_string().as_str())
             }
         }
+    }
+}
+
+impl Display for SystemTypeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use self::SystemTypeType::*;
+        let name = match self {
+            Boolean=> "Boolean",
+            String=> "String",
+            Number=> "Number",
+            DateTime=> "DateTime",
+            Time=> "Time",
+            Quantity=> "Quantity",
+            Element=> "Element",
+            Collection=> "Collection"
+        };
+
+        f.write_str(name)
     }
 }
 
@@ -267,6 +318,22 @@ impl<'a> SystemType<'a> {
             _ => {
                 None
             }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            SystemType::Collection(c) => c.is_empty(),
+            _ => false
+        }
+    }
+
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            SystemType::Boolean(b) => *b,
+            SystemType::String(s) => s.len() > 0,
+            SystemType::Collection(c) => !c.is_empty(),
+            _ => true // there is some value
         }
     }
 }
