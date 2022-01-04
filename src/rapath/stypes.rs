@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveTime, Utc};
 use rawbson::elem::Element;
 use serde_json::ser::Formatter;
 
-use crate::errors::ParseError;
+use crate::errors::{EvalError, ParseError};
 use crate::rapath::stypes::N::{Decimal, Integer};
 
 #[derive(Debug)]
@@ -270,53 +270,64 @@ impl<'a> SystemType<'a> {
         }
     }
 
-    pub fn get_as_number(&self) -> Option<i64> {
+    pub fn as_i64(&self) -> Result<i64, EvalError> {
         match self {
             SystemType::Number(n) => {
-                Some(n.as_i64())
+                Ok(n.as_i64())
             },
-            _ => {
-                None
+            st => {
+                Err(EvalError::new(format!("Cannot convert type {} to integer", st.get_type())))
             }
         }
     }
 
-    pub fn get_as_string(&self) -> Option<String> {
+    pub fn as_f64(&self) -> Result<f64, EvalError> {
+        match self {
+            SystemType::Number(n) => {
+                Ok(n.as_f64())
+            },
+            st => {
+                Err(EvalError::new(format!("Cannot convert type {} to decimal", st.get_type())))
+            }
+        }
+    }
+
+    pub fn as_string(&self) -> Result<String, EvalError> {
         match self {
             SystemType::String(s) => {
-                Some(String::from(s.as_str()))
+                Ok(String::from(s.as_str()))
             },
             SystemType::Boolean(b) => {
-                Some(b.to_string())
+                Ok(b.to_string())
             },
             SystemType::Number(n) => {
-                Some(n.to_string())
+                Ok(n.to_string())
             },
-            _ => {
-                None
+            st => {
+                Err(EvalError::new(format!("Cannot convert type {} to String", st.get_type())))
             }
         }
     }
 
-    pub fn as_bool(&self) -> Option<bool> {
+    pub fn as_bool(&self) -> Result<bool, EvalError> {
         match &*self {
             SystemType::Boolean(b) => {
-                Some(*b)
+                Ok(*b)
             },
             SystemType::String(s) => {
-                let b = s.as_str().parse::<bool>();
-                if b.is_ok() {
-                    let b = b.unwrap();
-                    return Some(b);
+                let s = s.as_str();
+                let b = s.parse::<bool>();
+                if let Ok(b) = b {
+                    return Ok(b);
                 }
 
-                return Some(false);
+                return Err(EvalError::new(format!("Cannot convert string {} to boolean", s)));
             },
             SystemType::Number(sd) => {
-                Some(sd.as_i64() > 0)
+                Ok(sd.as_i64() > 0)
             },
-            _ => {
-                None
+            st => {
+                Err(EvalError::new(format!("Cannot convert type {} to boolean", st.get_type())))
             }
         }
     }
