@@ -3,8 +3,9 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use crate::errors::ParseError;
-use crate::rapath::expr::{Ast, Operator};
+use crate::rapath::expr::{Ast, EvalFn, Operator};
 use crate::rapath::expr::Ast::Literal;
+use crate::rapath::functions::where_::where_;
 use crate::rapath::scanner::{Token, TokenAndPos};
 use crate::rapath::scanner::Token::*;
 use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
@@ -140,8 +141,10 @@ impl<'a> Parser {
             LEFT_PAREN => match *left {
                 Ast::Path {name: n, ..} => {
                     let args = self.parse_function_args()?;
+                    let func: EvalFn = where_;
                     let f = Ast::Function {
                         name: n,
+                        func,
                         args
                     };
                     Ok(f)
@@ -276,7 +279,7 @@ mod tests {
             let result = parse(tokens);
             if x.valid {
                 assert!(result.is_ok());
-                println!("{:?}", result.unwrap());
+                // println!("{:?}", result.unwrap());
             }
             else {
                 println!("{:?}", result.as_ref().err().unwrap());

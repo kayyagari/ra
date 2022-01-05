@@ -9,7 +9,6 @@ use rawbson::elem::Element;
 use std::rc::Rc;
 use crate::rapath::stypes::SystemType;
 
-#[derive(Debug)]
 pub enum Ast<'a> {
     Path {
       name: String
@@ -25,6 +24,7 @@ pub enum Ast<'a> {
     },
     Function {
         name: String,
+        func: EvalFn<'a>,
         args: Vec<Ast<'a>>
     },
     Index {
@@ -37,6 +37,8 @@ pub enum Ast<'a> {
         val: SystemType<'a>
     }
 }
+
+pub type EvalFn<'a> = fn(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> Result<Rc<SystemType<'a>>, EvalError>;
 
 #[derive(Debug)]
 pub enum Operator {

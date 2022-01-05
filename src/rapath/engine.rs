@@ -17,14 +17,12 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
 //     env_vars: &'a HashMap<String, String>
 // }
 
-type EvalFn<'a> = fn(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResult<'a>;
-
-pub struct FunctionDef<'a>(EvalFn<'a>);
+// pub struct FunctionDef<'a>(EvalFn<'a>);
 
 pub type EvalResult<'a> = Result<Rc<SystemType<'a>>, EvalError>;
 
 impl<'a> Ast<'a> {
-    pub fn eval(&self, base: &Rc<SystemType<'a>>) -> EvalResult {
+    pub fn eval(&'a self, base: &Rc<SystemType<'a>>) -> EvalResult {
         match self {
             Binary {lhs, rhs, op} => {
                 let lr = lhs.eval(base)?;
@@ -56,11 +54,8 @@ impl<'a> Ast<'a> {
                 let lb = lhs.eval(base)?;
                 rhs.eval(&lb)
             },
-            Function {name, args} => {
-                // TODO replace with dynamic function execution
-                //where_(base, &args)
-                let f = FunctionDef(where_);
-                f.0(base, args)
+            Function {name, func, args} => {
+                func(base, args)
             },
             e => {
                 Err(EvalError::new(format!("unsupported expression {}", e)))
