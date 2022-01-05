@@ -5,7 +5,7 @@ use rawbson::elem::ElementType;
 
 use crate::errors::EvalError;
 use crate::rapath::element_utils::to_systype;
-use crate::rapath::engine::EvalResult;
+use crate::rapath::EvalResult;
 use crate::rapath::expr::Ast;
 use crate::rapath::stypes::{Collection, SystemType};
 

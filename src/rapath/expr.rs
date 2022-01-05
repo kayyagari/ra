@@ -7,6 +7,7 @@ use crate::errors::{EvalError, ParseError};
 use crate::rapath::scanner::Token::*;
 use rawbson::elem::Element;
 use std::rc::Rc;
+use crate::rapath::EvalResult;
 use crate::rapath::stypes::SystemType;
 
 pub enum Ast<'a> {
@@ -38,7 +39,7 @@ pub enum Ast<'a> {
     }
 }
 
-pub type EvalFn<'a> = fn(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> Result<Rc<SystemType<'a>>, EvalError>;
+pub type EvalFn<'a> = fn(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResult<'a>;
 
 #[derive(Debug)]
 pub enum Operator {

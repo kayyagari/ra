@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::rc::Rc;
 use rawbson::elem::{Element, ElementType};
 use crate::errors::EvalError;
-use crate::rapath::engine::EvalResult;
+use crate::rapath::EvalResult;
 use crate::rapath::stypes::{SystemNumber, SystemString, SystemType, Collection};
 use log::error;
 

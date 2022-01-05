@@ -1,0 +1,8 @@
+use std::rc::Rc;
+use crate::rapath::engine::EvalResult;
+use crate::rapath::expr::Ast;
+use crate::rapath::stypes::SystemType;
+
+pub fn gt<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResult<'a> {
+
+}
