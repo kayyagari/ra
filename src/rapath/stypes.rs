@@ -343,7 +343,6 @@ impl<'a> SystemType<'a> {
     pub fn is_truthy(&self) -> bool {
         match self {
             SystemType::Boolean(b) => *b,
-            SystemType::String(s) => s.len() > 0,
             SystemType::Collection(c) => !c.is_empty(),
             _ => true // there is some value
         }
