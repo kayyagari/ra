@@ -43,8 +43,8 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
 
             Ok(Rc::new(SystemType::Collection(r)))
         },
-        t => {
-            return Err(EvalError::new(format!("invalid base input given to the where function. Expected either an Element or a collection of Elements but found {}", t.get_type())));
+        st => {
+            return Err(EvalError::new(format!("invalid base input given to the where function. Expected either an Element or a collection of Elements but found {}", st.get_type())));
         }
     }
 }
