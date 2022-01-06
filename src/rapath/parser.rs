@@ -138,6 +138,14 @@ impl<'a> Parser {
                     op: Operator::Plus
                 })
             },
+            GREATER => {
+                let rhs = self.expression(t.lbp())?;
+                Ok(Ast::Binary {
+                    lhs: left,
+                    rhs: Box::new(rhs),
+                    op: Operator::Greater
+                })
+            },
             LEFT_PAREN => match *left {
                 Ast::Path {name: n, ..} => {
                     let args = self.parse_function_args()?;
