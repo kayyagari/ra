@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::Display;
 use std::ptr::eq;
 use std::rc::Rc;
@@ -33,7 +34,7 @@ pub enum SystemTypeType {
     Collection
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SystemNumber {
     val: N
 }
@@ -182,25 +183,11 @@ impl SystemNumber {
     }
 
     pub fn as_i64(&self) -> i64 {
-        match self.val {
-            N::Integer(i) => {
-                i
-            },
-            N::Decimal(d) => {
-                d as i64
-            }
-        }
+        self.val.as_i64()
     }
 
     pub fn as_f64(&self) -> f64 {
-        match self.val {
-            N::Integer(i) => {
-                i as f64
-            },
-            N::Decimal(d) => {
-                d
-            }
-        }
+        self.val.as_f64()
     }
 }
 
@@ -210,17 +197,28 @@ impl Display for SystemNumber {
     }
 }
 
-impl Clone for SystemNumber {
-    fn clone(&self) -> Self {
-        SystemNumber{val: self.val.clone()}
-    }
-}
-
-impl Clone for N {
-    fn clone(&self) -> Self {
+impl N {
+    #[inline]
+    fn as_i64(&self) -> i64 {
         match self {
-            Integer(i) => Integer(*i),
-            Decimal(d) => Decimal(*d)
+            N::Integer(i) => {
+                *i
+            },
+            N::Decimal(d) => {
+                *d as i64
+            }
+        }
+    }
+
+    #[inline]
+    fn as_f64(&self) -> f64 {
+        match self {
+            N::Integer(i) => {
+                *i as f64
+            },
+            N::Decimal(d) => {
+                *d
+            }
         }
     }
 }
@@ -235,6 +233,41 @@ impl Display for N {
                 f.write_str(d.to_string().as_str())
             }
         }
+    }
+}
+
+impl Eq for N {}
+impl PartialEq for N {
+    fn eq(&self, other: &Self) -> bool {
+        let lhs = self.as_f64();
+        let rhs = other.as_f64();
+        lhs == rhs
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
+}
+
+impl Ord for N {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let lhs = self.as_f64();
+        let rhs = other.as_f64();
+
+        if lhs == rhs {
+            return Ordering::Equal;
+        }
+        else if lhs < rhs {
+            return Ordering::Less;
+        }
+
+        Ordering::Greater
+    }
+}
+
+impl PartialOrd for N {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -345,31 +378,6 @@ impl<'a> SystemType<'a> {
             SystemType::Boolean(b) => *b,
             SystemType::Collection(c) => !c.is_empty(),
             _ => true // there is some value
-        }
-    }
-}
-
-impl Eq for SystemNumber {}
-impl PartialEq for SystemNumber {
-    fn eq(&self, other: &Self) -> bool {
-        match self.val {
-            N::Integer(i1) => {
-                i1 == other.as_i64()
-            },
-            N::Decimal(d1) => {
-                d1 == other.as_f64()
-            }
-        }
-    }
-
-    fn ne(&self, other: &Self) -> bool {
-        match self.val {
-            N::Integer(i1) => {
-                i1 != other.as_i64()
-            },
-            N::Decimal(d1) => {
-                d1 != other.as_f64()
-            }
         }
     }
 }
