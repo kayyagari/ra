@@ -13,10 +13,10 @@ impl<'a> SystemType<'a> {
                 Ok(Rc::new(SystemType::String(SystemString::new(s))))
             },
             SystemType::Number(n) => {
-                let l = n.as_i64();
-                let r = rhs.as_i64()?;
+                let l = n.as_f64();
+                let r = rhs.as_f64()?;
                 let sd = l + r;
-                let sd = SystemNumber::new_integer(sd);
+                let sd = SystemNumber::new_decimal(sd);
                 Ok(Rc::new(SystemType::Number(sd)))
             }
             st => {

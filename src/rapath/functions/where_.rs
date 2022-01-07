@@ -34,7 +34,7 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
             }
             let mut r = Collection::new();
             let e = &args[0];
-            for item in c.val.as_ref().unwrap().into_iter() {
+            for item in c.iter() {
                 let item_result = e.eval(&Rc::clone(item))?;
                 if item_result.is_truthy() {
                     r.push(Rc::clone(item));

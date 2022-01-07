@@ -18,7 +18,7 @@ impl<'a> SystemType<'a> {
                 Ok(Rc::new(SystemType::Boolean(b)))
             },
             st => {
-                Err(EvalError::new(format!("greatethan is not supported on type {}", st.get_type())))
+                Err(EvalError::new(format!("greaterthan is not supported on type {}", st.get_type())))
             }
         }
     }

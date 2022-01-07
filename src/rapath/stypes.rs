@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt::Display;
+use std::ops::Add;
 use std::ptr::eq;
 use std::rc::Rc;
 
@@ -109,7 +110,7 @@ impl<'a> PartialEq for SystemString<'a> {
 
 #[derive(Debug)]
 pub struct Collection<'a> {
-    pub val: Option<Vec<Rc<SystemType<'a>>>>
+    val: Option<Vec<Rc<SystemType<'a>>>>
 }
 
 impl<'a> Collection<'a> {
@@ -271,6 +272,42 @@ impl PartialOrd for N {
     }
 }
 
+impl Add for SystemNumber {
+    type Output = SystemNumber;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let val = self.val + rhs.val;
+        SystemNumber{val}
+    }
+}
+
+impl Add for N {
+    type Output = N;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match self {
+            Integer(i) => {
+                if let Decimal(d) = rhs {
+                    return Decimal(i as f64 + d);
+                }
+
+                return Integer(i + rhs.as_i64());
+            },
+            Decimal(d) => {
+                let other;
+                if let Integer(i) = rhs {
+                    other = i as f64;
+                }
+                else {
+                    other = rhs.as_f64();
+                }
+
+                return Decimal(d + other);
+            }
+        }
+    }
+}
+
 impl Display for SystemTypeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use self::SystemTypeType::*;
@@ -307,7 +344,12 @@ impl<'a> SystemType<'a> {
     pub fn as_i64(&self) -> Result<i64, EvalError> {
         match self {
             SystemType::Number(n) => {
-                Ok(n.as_i64())
+                if let Integer(i) = n.val {
+                    Ok(i)
+                }
+                else {
+                    Err(EvalError::new(format!("{} is not an integer value", n.val)))
+                }
             },
             st => {
                 Err(EvalError::new(format!("Cannot convert type {} to integer", st.get_type())))
@@ -344,21 +386,45 @@ impl<'a> SystemType<'a> {
     }
 
     pub fn as_bool(&self) -> Result<bool, EvalError> {
-        match &*self {
+        match self {
             SystemType::Boolean(b) => {
                 Ok(*b)
             },
             SystemType::String(s) => {
                 let s = s.as_str();
-                let b = s.parse::<bool>();
-                if let Ok(b) = b {
-                    return Ok(b);
-                }
+                let b = match s.to_lowercase().as_str() {
+                    "true" => true,
+                    "t" => true,
+                    "yes" => true,
+                    "y" => true,
+                    "1" => true,
+                    "1.0" => true,
+                    "false" => false,
+                    "f" => false,
+                    "no" => false,
+                    "n" => false,
+                    "0" => false,
+                    "0.0" => false,
+                    _ => {
+                        return Err(EvalError::new(format!("Cannot convert string {} to boolean", s)));
+                    }
+                };
 
-                return Err(EvalError::new(format!("Cannot convert string {} to boolean", s)));
+                Ok(b)
             },
             SystemType::Number(sd) => {
-                Ok(sd.as_i64() > 0)
+                Ok(sd.as_f64() == 1.0)
+            },
+            SystemType::Collection(c) => {
+                if c.is_empty() {
+                    return Ok(false);
+                }
+
+                if c.len() > 1 {
+                    return Err(EvalError::from_str("Cannot convert non-singleton collection to boolean"));
+                }
+
+                c.val.as_ref().unwrap().get(0).unwrap().as_bool()
             },
             st => {
                 Err(EvalError::new(format!("Cannot convert type {} to boolean", st.get_type())))
