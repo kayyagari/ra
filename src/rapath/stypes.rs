@@ -10,6 +10,7 @@ use serde_json::ser::Formatter;
 
 use crate::errors::{EvalError, ParseError};
 use crate::rapath::stypes::N::{Decimal, Integer};
+use crate::rapath::element_utils;
 
 #[derive(Debug)]
 pub enum SystemType<'a> {
@@ -50,23 +51,23 @@ enum N {
 
 #[derive(Debug, Eq, PartialOrd, PartialEq)]
 pub struct SystemDateTime {
-    pub val: DateTime<Utc>
+    val: DateTime<Utc>
 }
 
 #[derive(Debug, Eq, PartialOrd, PartialEq)]
 pub struct SystemTime {
-    pub val: NaiveTime
+    val: NaiveTime
 }
 
 #[derive(Debug, Eq, PartialOrd, PartialEq)]
 pub struct SystemConstant {
-    pub val: String
+    val: String
 }
 
 #[derive(Debug)]
 pub struct SystemQuantity {
-    pub val: f64,
-    pub unit: String
+    val: f64,
+    unit: String
 }
 
 #[derive(Debug)]
@@ -466,7 +467,7 @@ impl<'a> PartialEq for SystemType<'a> {
             return false;
         }
 
-        match &*self {
+        match self {
             SystemType::Boolean(b1) => {
                 if let SystemType::Boolean(b2) = other {
                     return *b1 == *b2;
@@ -492,6 +493,33 @@ impl<'a> PartialEq for SystemType<'a> {
                     return *q1 == *q2;
                 }
             },
+            SystemType::Element(e1) => {
+                if let SystemType::Element(e2) = other {
+                    let r = element_utils::eq(e1, e2);
+                    if let Ok(r) = r {
+                        return r;
+                    }
+                }
+            },
+            SystemType::Collection(c1) => {
+                if let SystemType::Collection(c2) = other {
+                    if c1.len() != c2.len() {
+                        return false;
+                    }
+                    for (i, lst) in c1.iter().enumerate() {
+                        let rst = c2.val.as_ref().unwrap().get(i);
+                        if let Some(rst) = rst {
+                            let b = lst.eq(rst);
+                            if !b {
+                                return b;
+                            }
+                        }
+                        else {
+                            return false;
+                        }
+                    }
+                }
+            }
             _ => {
                 return false;
             }
@@ -502,5 +530,33 @@ impl<'a> PartialEq for SystemType<'a> {
 
     fn ne(&self, other: &Self) -> bool {
         !self.eq(other)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bson::spec::ElementType;
+    use rawbson::elem::Element;
+    use serde_json::Value;
+    use crate::rapath::stypes::SystemType;
+    use crate::test_utils::{read_patient, to_docbuf, update};
+
+    #[test]
+    fn test_equality() {
+        let mut p_json = read_patient();
+        let p1 = to_docbuf(&p_json);
+        let p1 = Element::new(ElementType::EmbeddedDocument, p1.as_bytes());
+        let p2 = to_docbuf(&p_json.clone());
+        let p2 = Element::new(ElementType::EmbeddedDocument, p2.as_bytes());
+
+        let st1 = SystemType::Element(p1);
+        let st2 = SystemType::Element(p2);
+        assert_eq!(st1, st2);
+
+        update(&mut p_json, "/name/given", Value::String(String::from("Peacock")));
+        let p2 = to_docbuf(&p_json);
+        let p2 = Element::new(ElementType::EmbeddedDocument, p2.as_bytes());
+        let st2 = SystemType::Element(p2);
+        assert_ne!(st1, st2);
     }
 }

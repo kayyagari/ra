@@ -5,6 +5,7 @@ use crate::errors::EvalError;
 use crate::rapath::EvalResult;
 use crate::rapath::stypes::{SystemNumber, SystemString, SystemType, Collection};
 use log::error;
+use rawbson::RawError;
 
 pub fn to_systype(el: Element) -> Option<SystemType> {
     match el.element_type() {
@@ -141,6 +142,103 @@ pub fn eval_path<'a>(name: &'a String, base: &Rc<SystemType<'a>>) -> EvalResult<
         },
         _ => {
             return Err(EvalError::new(format!("invalid SystemType for path {}. It must be either an element or a collection of elements", name)));
+        }
+    }
+}
+
+pub fn eq(lhs: &Element, rhs: &Element) -> Result<bool, RawError>  {
+    let ltype = lhs.element_type();
+    let rtype = rhs.element_type();
+    if ltype != rtype {
+        return Ok(false);
+    }
+
+    match ltype {
+        ElementType::String => {
+            let l = lhs.as_str()?;
+            let r = rhs.as_str()?;
+            Ok(l == r)
+        },
+        ElementType::Boolean => {
+            let l = lhs.as_bool()?;
+            let r = rhs.as_bool()?;
+            Ok(l == r)
+        },
+        ElementType::Int32 => {
+            let l = lhs.as_i32()?;
+            let r = rhs.as_i32()?;
+            Ok(l == r)
+        },
+        ElementType::Int64 => {
+            let l = lhs.as_i64()?;
+            let r = rhs.as_i64()?;
+            Ok(l == r)
+        },
+        ElementType::Double => {
+            let l = lhs.as_f64()?;
+            let r = rhs.as_f64()?;
+            Ok(l == r)
+        },
+        ElementType::Null => {
+            let l = lhs.as_null()?;
+            let r = rhs.as_null()?;
+            Ok(l == r)
+        },
+        ElementType::DateTime => {
+            let l = lhs.as_datetime()?;
+            let r = rhs.as_datetime()?;
+            Ok(l == r)
+        },
+        ElementType::Timestamp => {
+            let l = lhs.as_timestamp()?;
+            let r = rhs.as_timestamp()?;
+            Ok(l == r)
+        },
+        ElementType::EmbeddedDocument => {
+            let ld = lhs.as_document()?;
+            let rd = rhs.as_document()?;
+            for item in ld.into_iter() {
+                let (key, e) = item?;
+                let re = rd.get(key)?;
+                if let None = re {
+                    return Ok(false);
+                }
+                let b = eq(&e, re.as_ref().unwrap())?;
+                if !b {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        },
+        ElementType::Array => {
+            let la = lhs.as_array()?;
+            let ra = rhs.as_array()?;
+
+            let mut riter = ra.into_iter();
+            for litem in  la.into_iter() {
+                let le = litem?;
+                if let Some(re) = riter.next() {
+                    let re = re?;
+                    let b = eq(&le, &re)?;
+                    if !b {
+                        return Ok(false);
+                    }
+                }
+                else {
+                    // right array is shorter
+                    return Ok(false);
+                }
+            }
+
+            if let Some(e) = riter.next() {
+                // left array is shorter
+                return Ok(false);
+            }
+
+            Ok(true)
+        },
+        _ => {
+            return Err(RawError::UnexpectedType);
         }
     }
 }
