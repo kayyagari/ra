@@ -6,7 +6,7 @@ use rawbson::elem::ElementType;
 use crate::errors::EvalError;
 use crate::rapath::element_utils::to_systype;
 use crate::rapath::EvalResult;
-use crate::rapath::expr::Ast;
+use crate::rapath::expr::{Ast, Operator};
 use crate::rapath::stypes::{Collection, SystemType};
 
 pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResult<'a> {
@@ -21,8 +21,8 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
 
     match &*base.borrow() {
         SystemType::Element(e) => {
-            let r = args[0].eval(base)?;
-            if r.is_truthy() {
+            let r = args[0].eval_with_custom_comparison(base, Some(nested_compare))?;
+            if !r.is_truthy() {
                 return Ok(Rc::new(SystemType::Collection(Collection::new_empty())));
             }
             let r = to_systype(*e);
@@ -35,7 +35,8 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
             let mut r = Collection::new();
             let e = &args[0];
             for item in c.iter() {
-                let item_result = e.eval(&Rc::clone(item))?;
+                println!("{:?}", item);
+                let item_result = e.eval_with_custom_comparison(item, Some(nested_compare))?;
                 if item_result.is_truthy() {
                     r.push(Rc::clone(item));
                 }
@@ -49,6 +50,47 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
     }
 }
 
+fn nested_compare<'a>(lhs: &Rc<SystemType<'a>>, rhs: &Rc<SystemType<'a>>, op: &Operator) -> EvalResult<'a> {
+    match &*lhs.borrow() {
+        SystemType::Element(e) => {
+            match e.element_type() {
+                ElementType::EmbeddedDocument => {
+                    let ld = e.as_document()?;
+                    for item in ld.into_iter() {
+                        let (key, e) = item?;
+                        let le = to_systype(e);
+                        if let Some(le) = le {
+                            let le = Rc::new(le);
+                            let result = nested_compare(&le, rhs, op)?;
+                            if result.is_truthy() {
+                                return Ok(result);
+                            }
+                        }
+                    }
+                    Ok(Rc::new(SystemType::Boolean(false)))
+                }
+                t => {
+                    // control will only reach here, if to_systype couldn't convert the remaining ElementTypes to the appropriate SystemType
+                    Err(EvalError::new(format!("unexpected element type found in custom comparator of where function {:?}", t)))
+                }
+            }
+        },
+        SystemType::Collection(c) => {
+            for item in c.iter() {
+                let item_result = nested_compare(item, rhs, op)?;
+                if item_result.is_truthy() {
+                    return Ok(item_result);
+                }
+            }
+
+            Ok(Rc::new(SystemType::Boolean(false)))
+        },
+        _ => {
+            Ast::simple_compare(lhs, rhs, op)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Borrow;
@@ -56,10 +98,12 @@ mod tests {
 
     use rawbson::DocBuf;
     use rawbson::elem::{Element, ElementType};
+    use crate::errors::EvalError;
 
     use crate::rapath::parser::parse;
     use crate::rapath::scanner::scan_tokens;
     use crate::rapath::stypes::{SystemType, SystemTypeType};
+    use crate::test_utils::{read_patient, to_docbuf};
 
     #[test]
     fn test_where() {
@@ -79,5 +123,24 @@ mod tests {
         };
         assert_eq!(2, result.len());
         println!("{:?}", result);
+    }
+
+    #[test]
+    fn test_where_in_primitive_array() -> Result<(), EvalError> {
+        let mut p_json = read_patient();
+        let p1 = to_docbuf(&p_json);
+        let p1 = Element::new(ElementType::EmbeddedDocument, p1.as_bytes());
+        let tokens = scan_tokens("name.where(given = 'Duck')").unwrap();
+        let e = parse(tokens).unwrap();
+        let doc_base = Rc::new(SystemType::Element(p1));
+        let result = e.eval(&doc_base)?;
+        assert!(result.is_truthy());
+
+        let tokens = scan_tokens("name.where(given = 'Peacock')").unwrap();
+        let e = parse(tokens).unwrap();
+        let result = e.eval(&doc_base)?;
+        assert!(!result.is_truthy());
+
+        Ok(())
     }
 }

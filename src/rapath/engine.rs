@@ -9,7 +9,7 @@ use crate::errors::EvalError;
 use crate::rapath::element_utils::{eval_path, to_systype};
 use crate::rapath::EvalResult;
 use crate::rapath::functions::where_::where_;
-use crate::rapath::expr::Ast;
+use crate::rapath::expr::{Ast, CmpFunc, Operator};
 use crate::rapath::expr::Ast::*;
 use crate::rapath::expr::Operator::*;
 use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
@@ -20,29 +20,19 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
 
 impl<'a> Ast<'a> {
     pub fn eval(&'a self, base: &Rc<SystemType<'a>>) -> EvalResult {
+        self.eval_with_custom_comparison(base, None)
+    }
+
+    pub fn eval_with_custom_comparison(&'a self, base: &Rc<SystemType<'a>>, cmp_func: Option<CmpFunc<'a>>) -> EvalResult {
         match self {
             Binary {lhs, rhs, op} => {
                 let lr = lhs.eval(base)?;
                 let rr = rhs.eval(base)?;
-              match op {
-                  Plus => {
-                      lr.add(&rr)
-                  },
-                  Equal => {
-                      let r = lr == rr;
-                      Ok(Rc::new(SystemType::Boolean(r)))
-                  },
-                  NotEqual => {
-                      let r = lr != rr;
-                      Ok(Rc::new(SystemType::Boolean(r)))
-                  },
-                  Greater => {
-                      lr.gt(&rr)
-                  },
-                  _ => {
-                      Err(EvalError::from_str("unsupported binary operation"))
-                  }
-              }
+                if let Some(cmp_func) = cmp_func {
+                    return cmp_func(&lr, &rr, op);
+                }
+
+                Ast::simple_compare(&lr, &rr, op)
             },
             Literal {val} => {
                 Ok(Rc::clone(val))
@@ -59,6 +49,28 @@ impl<'a> Ast<'a> {
             },
             e => {
                 Err(EvalError::new(format!("unsupported expression {}", e)))
+            }
+        }
+    }
+
+    pub fn simple_compare(lr: &Rc<SystemType<'a>>, rr: &Rc<SystemType<'a>>, op: &Operator) -> EvalResult<'a> {
+        match op {
+            Plus => {
+                lr.add(&rr)
+            },
+            Equal => {
+                let r = lr == rr;
+                Ok(Rc::new(SystemType::Boolean(r)))
+            },
+            NotEqual => {
+                let r = lr != rr;
+                Ok(Rc::new(SystemType::Boolean(r)))
+            },
+            Greater => {
+                lr.gt(&rr)
+            },
+            _ => {
+                Err(EvalError::from_str("unsupported binary operation"))
             }
         }
     }

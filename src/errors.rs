@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use rawbson::RawError;
 
 use thiserror::Error;
 
@@ -66,6 +67,11 @@ impl EvalError {
     }
 }
 
+impl<'a> From<RawError> for EvalError {
+    fn from(err: RawError) -> Self {
+        EvalError::new(err.to_string())
+    }
+}
 
 #[derive(Debug)]
 pub struct ScanError {

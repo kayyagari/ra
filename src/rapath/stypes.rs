@@ -463,6 +463,7 @@ impl PartialEq for SystemQuantity {
 impl<'a> Eq for SystemType<'a> {}
 impl<'a> PartialEq for SystemType<'a> {
     fn eq(&self, other: &Self) -> bool {
+        println!("lhs = {}, rhs = {}", self.get_type(), other.get_type());
         if self.get_type() != other.get_type() {
             return false;
         }

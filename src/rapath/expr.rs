@@ -40,6 +40,7 @@ pub enum Ast<'a> {
 }
 
 pub type EvalFn<'a> = fn(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResult<'a>;
+pub type CmpFunc<'a> = fn(lhs: &Rc<SystemType<'a>>, rhs: &Rc<SystemType<'a>>, op: &Operator) -> EvalResult<'a>;
 
 #[derive(Debug)]
 pub enum Operator {
