@@ -26,13 +26,39 @@ impl<'a> Ast<'a> {
     pub fn eval_with_custom_comparison(&'a self, base: &Rc<SystemType<'a>>, cmp_func: Option<CmpFunc<'a>>) -> EvalResult {
         match self {
             Binary {lhs, rhs, op} => {
-                let lr = lhs.eval(base)?;
-                let rr = rhs.eval(base)?;
-                if let Some(cmp_func) = cmp_func {
-                    return cmp_func(&lr, &rr, op);
-                }
+                match op {
+                    Equal | NotEqual |
+                    Equivalent | NotEquivalent |
+                    Greater | GreaterEqual |
+                    Less | LessEqual => {
+                        let lr = lhs.eval_with_custom_comparison(base, cmp_func)?;
+                        let rr = rhs.eval_with_custom_comparison(base, cmp_func)?;
+                        if let Some(cmp_func) = cmp_func {
+                            return cmp_func(&lr, &rr, op);
+                        }
 
-                Ast::simple_compare(&lr, &rr, op)
+                        Ast::simple_compare(&lr, &rr, op)
+                    },
+                    Plus => {
+                        let lr = lhs.eval_with_custom_comparison(base, cmp_func)?;
+                        let rr = rhs.eval_with_custom_comparison(base, cmp_func)?;
+                        lr.add(&rr)
+                    },
+                    And => {
+                        let lr = lhs.eval_with_custom_comparison(base, cmp_func)?;
+                        if lr.is_truthy() {
+                            let rr = rhs.eval_with_custom_comparison(base, cmp_func)?;
+                            if rr.is_truthy() {
+                                return Ok(rr);
+                            }
+                        }
+
+                        Ok(Rc::new(SystemType::Boolean(false)))
+                    },
+                    _ => {
+                        Err(EvalError::new(format!("unsupported binary operation {:?}", op)))
+                    }
+                }
             },
             Literal {val} => {
                 Ok(Rc::clone(val))
@@ -55,9 +81,6 @@ impl<'a> Ast<'a> {
 
     pub fn simple_compare(lr: &Rc<SystemType<'a>>, rr: &Rc<SystemType<'a>>, op: &Operator) -> EvalResult<'a> {
         match op {
-            Plus => {
-                lr.add(&rr)
-            },
             Equal => {
                 let r = lr == rr;
                 Ok(Rc::new(SystemType::Boolean(r)))
@@ -70,7 +93,7 @@ impl<'a> Ast<'a> {
                 lr.gt(&rr)
             },
             _ => {
-                Err(EvalError::from_str("unsupported binary operation"))
+                Err(EvalError::new(format!("unsupported comparison operation {:?}", op)))
             }
         }
     }

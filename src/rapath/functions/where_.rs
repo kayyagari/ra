@@ -35,7 +35,6 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
             let mut r = Collection::new();
             let e = &args[0];
             for item in c.iter() {
-                println!("{:?}", item);
                 let item_result = e.eval_with_custom_comparison(item, Some(nested_compare))?;
                 if item_result.is_truthy() {
                     r.push(Rc::clone(item));
