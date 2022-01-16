@@ -73,6 +73,12 @@ impl<'a> From<RawError> for EvalError {
     }
 }
 
+impl<'a> From<rawbson::de::Error> for EvalError {
+    fn from(err: rawbson::de::Error) -> Self {
+        EvalError::new(err.to_string())
+    }
+}
+
 #[derive(Debug)]
 pub struct ScanError {
     pub errors: Vec<String>
