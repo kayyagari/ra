@@ -74,7 +74,7 @@ pub fn to_systype(el: Element) -> Option<SystemType> {
     None
 }
 
-pub fn eval_path<'a>(name: &'a String, base: &Rc<SystemType<'a>>) -> EvalResult<'a> {
+pub fn eval_path<'a, 'b>(name: &'a String, base: Rc<SystemType<'b>>) -> EvalResult<'b> {
     match &*base.borrow() {
         SystemType::Element(e) => {
             match e.element_type() {

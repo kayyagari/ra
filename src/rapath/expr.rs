@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, format, Formatter, Write};
 
 use chrono::{DateTime, NaiveTime, Utc};
 
@@ -8,6 +8,7 @@ use crate::rapath::scanner::Token::*;
 use rawbson::elem::Element;
 use std::rc::Rc;
 use crate::rapath::EvalResult;
+use crate::rapath::functions::where_::where_;
 use crate::rapath::stypes::SystemType;
 
 pub enum Ast<'a> {
@@ -24,9 +25,11 @@ pub enum Ast<'a> {
         rhs: Box<Ast<'a>>
     },
     Function {
-        name: String,
-        func: EvalFn<'a>,
-        args: Vec<Ast<'a>>
+        // name: String,
+        func: Function<'a>,
+        // func: EvalFn<'a>,
+        // func: Box<dyn EvalFunc<'a>>,
+        // args: Rc<Vec<Ast<'a>>>
     },
     Index {
         idx: u32
@@ -39,8 +42,33 @@ pub enum Ast<'a> {
     }
 }
 
-pub type EvalFn<'a> = fn(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResult<'a>;
-pub type CmpFunc<'a> = fn(lhs: &Rc<SystemType<'a>>, rhs: &Rc<SystemType<'a>>, op: &Operator) -> EvalResult<'a>;
+// TODO use a function pointer instead of using the Function enum
+//pub type EvalFn<'b> = fn(base: Rc<SystemType<'b>>, args: &'b Rc<Vec<Ast<'b>>>) -> EvalResult<'b>;
+pub type CmpFunc<'b> = fn(lhs: Rc<SystemType<'b>>, rhs: Rc<SystemType<'b>>, op: &Operator) -> EvalResult<'b>;
+
+// this enum exists because I couldn't get to make EvalFn<'b> work
+// the error was "but data from `base` flows into `ast` here" in engine.rs in the match arm of Ast::Function
+// it would be nice to get the function pointer based code work
+pub enum Function<'a> {
+    NameAndArgs(String, Vec<Ast<'a>>)
+}
+
+impl<'a, 'b> Function<'a> where 'a: 'b {
+    pub fn eval_func(&'a self, base: Rc<SystemType<'b>>) -> EvalResult<'b> {
+        match self {
+            Function::NameAndArgs(name, args) => {
+                match name.as_str() {
+                    "where" => {
+                        where_(base, args)
+                    },
+                    _ => {
+                        Err(EvalError::new(format!("unknown function name {}", name)))
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum Operator {
@@ -56,7 +84,7 @@ pub enum Operator {
     Union, Div, Mod, Is, As, Implies
 }
 
-impl<'a> Display for Ast<'a> {
+impl<'a, 'b> Display for Ast<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use self::Ast::*;
         let s = match self {

@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Write};
@@ -18,36 +19,35 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
 //     env_vars: &'a HashMap<String, String>
 // }
 
-impl<'a> Ast<'a> {
-    pub fn eval(&'a self, base: &Rc<SystemType<'a>>) -> EvalResult {
-        self.eval_with_custom_comparison(base, None)
+    pub fn eval<'a, 'b>(ast: &'a Ast<'a>, base: Rc<SystemType<'b>>) -> EvalResult<'b> where 'a: 'b {
+        eval_with_custom_comparison(ast, base, None)
     }
 
-    pub fn eval_with_custom_comparison(&'a self, base: &Rc<SystemType<'a>>, cmp_func: Option<CmpFunc<'a>>) -> EvalResult {
-        match self {
+    pub fn eval_with_custom_comparison<'a, 'b>(ast: &'a Ast<'a>, base: Rc<SystemType<'b>>, cmp_func: Option<CmpFunc<'b>>) -> EvalResult<'b> where 'a: 'b {
+        match ast {
             Binary {lhs, rhs, op} => {
                 match op {
                     Equal | NotEqual |
                     Equivalent | NotEquivalent |
                     Greater | GreaterEqual |
                     Less | LessEqual => {
-                        let lr = lhs.eval_with_custom_comparison(base, cmp_func)?;
-                        let rr = rhs.eval_with_custom_comparison(base, cmp_func)?;
+                        let lr = eval_with_custom_comparison(&lhs, Rc::clone(&base), cmp_func)?;
+                        let rr = eval_with_custom_comparison(&rhs, Rc::clone(&base), cmp_func)?;
                         if let Some(cmp_func) = cmp_func {
-                            return cmp_func(&lr, &rr, op);
+                            return cmp_func(lr, rr, op);
                         }
 
-                        Ast::simple_compare(&lr, &rr, op)
+                        simple_compare(lr, rr, op)
                     },
                     Plus => {
-                        let lr = lhs.eval_with_custom_comparison(base, cmp_func)?;
-                        let rr = rhs.eval_with_custom_comparison(base, cmp_func)?;
+                        let lr = eval_with_custom_comparison(&lhs, Rc::clone(&base), cmp_func)?;
+                        let rr = eval_with_custom_comparison(&rhs, Rc::clone(&base), cmp_func)?;
                         lr.add(&rr)
                     },
                     And => {
-                        let lr = lhs.eval_with_custom_comparison(base, cmp_func)?;
+                        let lr = eval_with_custom_comparison(&lhs, Rc::clone(&base), cmp_func)?;
                         if lr.is_truthy() {
-                            let rr = rhs.eval_with_custom_comparison(base, cmp_func)?;
+                            let rr = eval_with_custom_comparison(&rhs, Rc::clone(&base), cmp_func)?;
                             if rr.is_truthy() {
                                 return Ok(rr);
                             }
@@ -67,11 +67,11 @@ impl<'a> Ast<'a> {
                 eval_path(name, base)
             },
             SubExpr {lhs, rhs} => {
-                let lb = lhs.eval(base)?;
-                rhs.eval(&lb)
+                let lb = eval(lhs, base)?;
+                eval(rhs, Rc::clone(&lb))
             },
-            Function {name, func, args} => {
-                func(base, args)
+            Function {func} => {
+                func.eval_func(base)
             },
             e => {
                 Err(EvalError::new(format!("unsupported expression {}", e)))
@@ -79,7 +79,7 @@ impl<'a> Ast<'a> {
         }
     }
 
-    pub fn simple_compare(lr: &Rc<SystemType<'a>>, rr: &Rc<SystemType<'a>>, op: &Operator) -> EvalResult<'a> {
+    pub fn simple_compare<'b>(lr: Rc<SystemType<'b>>, rr: Rc<SystemType<'b>>, op: &Operator) -> EvalResult<'b> {
         match op {
             Equal => {
                 let r = lr == rr;
@@ -97,10 +97,10 @@ impl<'a> Ast<'a> {
             }
         }
     }
-}
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::rc::Rc;
     use bson::spec::ElementType;
     use rawbson::DocBuf;
@@ -137,7 +137,7 @@ mod tests {
         let tokens = scan_tokens("inner.k").unwrap();
         let e = parse(tokens).unwrap();
         let doc_base = SystemType::Element(doc_el);
-        let result = e.eval(&Rc::new(doc_base));
+        let result = eval(&e, Rc::new(doc_base));
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(SystemTypeType::Number, result.get_type());
@@ -149,7 +149,7 @@ mod tests {
         let tokens = scan_tokens("1+1").unwrap();
         let e = parse(tokens).unwrap();
         let dummy_base = SystemType::Boolean(true);
-        let result = e.eval(&Rc::new(dummy_base));
+        let result = eval(&e, Rc::new(dummy_base));
         //println!("{:?}", result.as_ref().err().unwrap());
         assert!(result.is_ok());
         let result = result.unwrap();
@@ -163,7 +163,7 @@ mod tests {
         let tokens = scan_tokens("1 = 1").unwrap();
         let e = parse(tokens).unwrap();
         let dummy_base = SystemType::Boolean(true);
-        let result = e.eval(&Rc::new(dummy_base));
+        let result = eval(&e, Rc::new(dummy_base));
         //println!("{:?}", result.as_ref().err().unwrap());
         assert!(result.is_ok());
         let result = result.unwrap();

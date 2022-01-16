@@ -13,15 +13,15 @@ use crate::rapath::stypes::N::{Decimal, Integer};
 use crate::rapath::element_utils;
 
 #[derive(Debug)]
-pub enum SystemType<'a> {
+pub enum SystemType<'b> {
     Boolean(bool),
-    String(SystemString<'a>),
+    String(SystemString<'b>),
     Number(SystemNumber),
     DateTime(SystemDateTime),
     Time(SystemTime),
     Quantity(SystemQuantity),
-    Element(Element<'a>),
-    Collection(Collection<'a>)
+    Element(Element<'b>),
+    Collection(Collection<'b>)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -71,17 +71,17 @@ pub struct SystemQuantity {
 }
 
 #[derive(Debug)]
-pub struct SystemString<'a> {
+pub struct SystemString<'b> {
     owned: Option<String>, // TODO use SmartString to minimize allocations on heap
-    borrowed: Option<&'a str>
+    borrowed: Option<&'b str>
 }
 
-impl<'a> SystemString<'a> {
+impl<'b> SystemString<'b> {
     pub fn new(s: String) -> Self {
         SystemString{owned: Some(s), borrowed: None}
     }
 
-    pub fn from_slice(s: &'a str) -> Self {
+    pub fn from_slice(s: &'b str) -> Self {
         SystemString{owned: None, borrowed: Some(s)}
     }
 
@@ -98,8 +98,8 @@ impl<'a> SystemString<'a> {
     }
 }
 
-impl<'a> Eq for SystemString<'a>{}
-impl<'a> PartialEq for SystemString<'a> {
+impl<'b> Eq for SystemString<'b>{}
+impl<'b> PartialEq for SystemString<'b> {
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
     }
@@ -110,11 +110,11 @@ impl<'a> PartialEq for SystemString<'a> {
 }
 
 #[derive(Debug)]
-pub struct Collection<'a> {
-    val: Option<Vec<Rc<SystemType<'a>>>>
+pub struct Collection<'b> {
+    val: Option<Vec<Rc<SystemType<'b>>>>
 }
 
-impl<'a> Collection<'a> {
+impl<'b> Collection<'b> {
     pub fn new() -> Self {
         Collection{val: Option::Some(vec!())}
     }
@@ -131,11 +131,11 @@ impl<'a> Collection<'a> {
         true
     }
 
-    pub fn push(&mut self, st: Rc<SystemType<'a>>) {
+    pub fn push(&mut self, st: Rc<SystemType<'b>>) {
         self.val.as_mut().unwrap().push(st);
     }
 
-    pub fn iter(&self) -> core::slice::Iter<Rc<SystemType<'a>>> {
+    pub fn iter(&self) -> core::slice::Iter<Rc<SystemType<'b>>> {
          self.val.as_ref().unwrap().iter()
     }
 
@@ -327,7 +327,7 @@ impl Display for SystemTypeType {
     }
 }
 
-impl<'a> SystemType<'a> {
+impl<'b> SystemType<'b> {
     pub fn get_type(&self) -> SystemTypeType {
         use self::SystemType::*;
         match self {
@@ -460,8 +460,8 @@ impl PartialEq for SystemQuantity {
     }
 }
 
-impl<'a> Eq for SystemType<'a> {}
-impl<'a> PartialEq for SystemType<'a> {
+impl<'b> Eq for SystemType<'b> {}
+impl<'b> PartialEq for SystemType<'b> {
     fn eq(&self, other: &Self) -> bool {
         println!("lhs = {}, rhs = {}", self.get_type(), other.get_type());
         if self.get_type() != other.get_type() {

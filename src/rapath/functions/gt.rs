@@ -27,6 +27,7 @@ impl<'a> SystemType<'a> {
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
+    use crate::rapath::engine::eval;
     use crate::rapath::parser::parse;
     use crate::rapath::scanner::scan_tokens;
     use crate::rapath::stypes::{SystemNumber, SystemTypeType};
@@ -37,7 +38,7 @@ mod tests {
         let tokens = scan_tokens("'abc' > 'xyz'").unwrap();
         let e = parse(tokens).unwrap();
         let dummy_base = SystemType::Boolean(true);
-        let result = e.eval(&Rc::new(dummy_base));
+        let result = eval(&e, Rc::new(dummy_base));
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(SystemTypeType::Boolean, result.get_type());

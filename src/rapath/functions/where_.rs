@@ -5,11 +5,12 @@ use rawbson::elem::ElementType;
 
 use crate::errors::EvalError;
 use crate::rapath::element_utils::to_systype;
+use crate::rapath::engine::{eval_with_custom_comparison, simple_compare};
 use crate::rapath::EvalResult;
-use crate::rapath::expr::{Ast, Operator};
+use crate::rapath::expr::{Ast, Function, Operator};
 use crate::rapath::stypes::{Collection, SystemType};
 
-pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResult<'a> {
+pub fn where_<'b>(base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResult<'b> {
     let arg_len = args.len();
     if arg_len == 0 {
         return Err(EvalError::from_str("missing argument for where function"));
@@ -19,9 +20,9 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
         return Err(EvalError::new(format!("incorrect number of arguments passed to where function. Expected 1, found {}", arg_len)));
     }
 
-    match &*base.borrow() {
+    match base.borrow() {
         SystemType::Element(e) => {
-            let r = args[0].eval_with_custom_comparison(base, Some(nested_compare))?;
+            let r = eval_with_custom_comparison(&args[0], Rc::clone(&base), Some(nested_compare))?;
             if !r.is_truthy() {
                 return Ok(Rc::new(SystemType::Collection(Collection::new_empty())));
             }
@@ -35,7 +36,7 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
             let mut r = Collection::new();
             let e = &args[0];
             for item in c.iter() {
-                let item_result = e.eval_with_custom_comparison(item, Some(nested_compare))?;
+                let item_result = eval_with_custom_comparison(&e, Rc::clone(item), Some(nested_compare))?;
                 if item_result.is_truthy() {
                     r.push(Rc::clone(item));
                 }
@@ -49,8 +50,8 @@ pub fn where_<'a>(base: &Rc<SystemType<'a>>, args: &'a Vec<Ast<'a>>) -> EvalResu
     }
 }
 
-fn nested_compare<'a>(lhs: &Rc<SystemType<'a>>, rhs: &Rc<SystemType<'a>>, op: &Operator) -> EvalResult<'a> {
-    match &*lhs.borrow() {
+fn nested_compare<'b>(lhs: Rc<SystemType<'b>>, rhs: Rc<SystemType<'b>>, op: &Operator) -> EvalResult<'b> {
+    match lhs.borrow() {
         SystemType::Element(e) => {
             match e.element_type() {
                 ElementType::EmbeddedDocument => {
@@ -60,7 +61,7 @@ fn nested_compare<'a>(lhs: &Rc<SystemType<'a>>, rhs: &Rc<SystemType<'a>>, op: &O
                         let le = to_systype(e);
                         if let Some(le) = le {
                             let le = Rc::new(le);
-                            let result = nested_compare(&le, rhs, op)?;
+                            let result = nested_compare(le, Rc::clone(&rhs), op)?;
                             if result.is_truthy() {
                                 return Ok(result);
                             }
@@ -76,7 +77,7 @@ fn nested_compare<'a>(lhs: &Rc<SystemType<'a>>, rhs: &Rc<SystemType<'a>>, op: &O
         },
         SystemType::Collection(c) => {
             for item in c.iter() {
-                let item_result = nested_compare(item, rhs, op)?;
+                let item_result = nested_compare(Rc::clone(item), Rc::clone(&rhs), op)?;
                 if item_result.is_truthy() {
                     return Ok(item_result);
                 }
@@ -85,7 +86,7 @@ fn nested_compare<'a>(lhs: &Rc<SystemType<'a>>, rhs: &Rc<SystemType<'a>>, op: &O
             Ok(Rc::new(SystemType::Boolean(false)))
         },
         _ => {
-            Ast::simple_compare(lhs, rhs, op)
+            simple_compare(lhs, rhs, op)
         }
     }
 }
@@ -98,6 +99,7 @@ mod tests {
     use rawbson::DocBuf;
     use rawbson::elem::{Element, ElementType};
     use crate::errors::EvalError;
+    use crate::rapath::engine::eval;
 
     use crate::rapath::parser::parse;
     use crate::rapath::scanner::scan_tokens;
@@ -112,7 +114,7 @@ mod tests {
         let tokens = scan_tokens("inner.where(k = 1)").unwrap();
         let e = parse(tokens).unwrap();
         let doc_base = SystemType::Element(doc_el);
-        let result = e.eval(&Rc::new(doc_base));
+        let result = eval(&e, Rc::new(doc_base));
         assert!(result.is_ok());
         let result = result.unwrap();
         let result = &*result.borrow();
@@ -132,12 +134,12 @@ mod tests {
         let tokens = scan_tokens("name.where(given = 'Duck')").unwrap();
         let e = parse(tokens).unwrap();
         let doc_base = Rc::new(SystemType::Element(p1));
-        let result = e.eval(&doc_base)?;
+        let result = eval(&e, Rc::clone(&doc_base))?;
         assert!(result.is_truthy());
 
         let tokens = scan_tokens("name.where(given = 'Peacock')").unwrap();
         let e = parse(tokens).unwrap();
-        let result = e.eval(&doc_base)?;
+        let result = eval(&e, Rc::clone(&doc_base))?;
         assert!(!result.is_truthy());
 
         Ok(())
