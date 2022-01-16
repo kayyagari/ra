@@ -2,11 +2,11 @@ use std::rc::Rc;
 use crate::errors::EvalError;
 use crate::rapath::stypes::SystemType;
 
-mod scanner;
-mod parser;
-mod stypes;
-mod expr;
-mod engine;
+pub mod scanner;
+pub mod parser;
+pub mod stypes;
+pub mod expr;
+pub mod engine;
 mod functions;
 mod element_utils;
 

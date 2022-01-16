@@ -9,6 +9,9 @@ use bson::spec::ElementType;
 use rawbson::DocBuf;
 use rawbson::elem::Element;
 use serde_json::{Map, Value};
+use crate::rapath::scanner::scan_tokens;
+use crate::rapath::expr::Ast;
+use crate::rapath::parser::parse;
 
 pub fn read_patient() -> Value {
     let f = File::open("test_data/resources/patient-example-a.json").expect("couldn't read the sample patient JSON file");
@@ -18,6 +21,11 @@ pub fn read_patient() -> Value {
 pub fn to_docbuf(val: &Value) -> DocBuf {
     let doc = bson::to_bson(val).expect("failed to convert to Bson");
     DocBuf::from_document(doc.as_document().unwrap())
+}
+
+pub fn parse_expression(s: &str) -> Ast {
+    let tokens = scan_tokens(s).unwrap();
+    parse(tokens).unwrap()
 }
 
 pub fn update(doc: &mut Value, pointer: &str, v: Value) {

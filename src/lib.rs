@@ -11,13 +11,13 @@ pub mod validator;
 mod res_schema;
 mod context;
 mod errors;
-// mod barn;
+mod barn;
 mod utils;
 mod filter_scanner;
 mod filter_parser;
 mod dtypes;
 mod search;
-mod rapath;
+pub mod rapath;
 mod test_utils;
 
 #[derive(Error, Debug)]
