@@ -266,7 +266,7 @@ impl ResourceDef {
 
     fn prepare_id(&self, prefix: &[u8], ksid: &[u8]) -> [u8; 24]{
         let mut tmp: [u8; 24] = [0; 24];
-        tmp.copy_from_slice(prefix);
+        tmp[..4].copy_from_slice(prefix);
         tmp[4..].copy_from_slice(ksid);
 
         tmp
