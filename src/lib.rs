@@ -8,10 +8,10 @@ use log4rs::encode::pattern::PatternEncoder;
 use thiserror::Error;
 
 pub mod validator;
-mod res_schema;
+pub mod res_schema;
 mod context;
 mod errors;
-mod barn;
+pub mod barn;
 mod utils;
 mod filter_scanner;
 mod filter_parser;

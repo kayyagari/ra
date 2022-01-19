@@ -110,12 +110,12 @@ impl Barn {
         }
 
         // handle references
-        for ref_prop in &res_def.ref_props {
-            let ref_node = data.get(ref_prop.as_str());
-            if ref_node.is_some() {
-
-            }
-        }
+        // for ref_prop in &res_def.ref_props {
+        //     let ref_node = data.get(ref_prop.as_str());
+        //     if ref_node.is_some() {
+        //
+        //     }
+        // }
         Ok(())
     }
 
@@ -126,11 +126,11 @@ impl Barn {
         //let read_opts = ReadOptions::default();
         let mut results = Vec::new();
 
-        let mut count = 0;
-        let start = Instant::now();
+        //let mut count = 0;
+        //let start = Instant::now();
         let mut inner = self.db.prefix_iterator(&res_def.hash);
         for (k, v) in inner {
-            count += 1;
+            //count += 1;
             let e = Element::new(ElementType::EmbeddedDocument, v.as_ref());
             let st = Rc::new(SystemType::Element(e));
             let pick = eval(&filter, st)?;
@@ -140,8 +140,8 @@ impl Barn {
                 results.push(val);
             }
         }
-        let elapsed = start.elapsed().as_secs();
-        println!("time took to search through {} records {}", count, elapsed);
+        //let elapsed = start.elapsed().as_secs();
+        //println!("time took to search through {} records {}", count, elapsed);
         Ok(results)
     }
 }
