@@ -11,14 +11,12 @@ use ra_registry::res_schema::{parse_res_def, ResourceDef};
 use ra_registry::validator;
 
 fn main() {
-    let f = File::open("test_data/fhir.schema-4.0.json").unwrap();
-    let v: Value = serde_json::from_reader(f).unwrap();
-    let s = parse_res_def(&v).unwrap();
-    let patient_schema = s.resources.get("Patient").unwrap();
 
     let path = PathBuf::from("/tmp/testdb");
     //std::fs::remove_dir_all(&path);
     let barn = Barn::open(&path).unwrap();
+    let s = &barn.schema;
+    let patient_schema = s.resources.get("Patient").unwrap();
 
     let start = Instant::now();
     let count = load_patients(PathBuf::from("/Users/dbugger/Downloads/synthea-fhir-samples.zip"), patient_schema, &barn);
@@ -52,9 +50,9 @@ fn load_patients(p: PathBuf, res_def: &ResourceDef, db: &Barn) -> i32 {
                 let rt = r.get("resource").unwrap();
                 if rt.get("resourceType").unwrap().as_str().unwrap() == "Patient" {
                     //println!("inserting name.family {:?}", rt.pointer("/name[0]/family"));
-                    let data = bson::to_bson(&rt).unwrap();
-                    let mut data = data.as_document().unwrap().to_owned();
-                    db.insert(res_def, &mut data).unwrap();
+                    let data = bson::to_document(&rt).unwrap();
+                    //let mut data = data.as_document().unwrap().to_owned();
+                    db.insert(res_def, data).unwrap();
                     count += 1;
                     break;
                 }

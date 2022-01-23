@@ -1,24 +1,33 @@
 use std::collections::HashMap;
 
 use crc32fast::Hasher;
-use log::{debug, error, info, trace};
+use jsonschema::JSONSchema;
+use log::{debug, error, info, trace, warn};
 use serde_json::Value;
 use crate::dtypes::DataType;
-use crate::RaError;
+use crate::{utils};
+use crate::errors::RaError;
+use crate::utils::prefix_id;
 
 extern crate crc32fast;
 
 pub struct SchemaDef {
     pub props: HashMap<String, Box<PropertyDef>>,
-    pub resources: HashMap<String, ResourceDef>
+    pub resources: HashMap<String, ResourceDef>,
+    schema: JSONSchema
 }
 
 pub struct ResourceDef {
+    /// Name of the resource
     pub name: String,
+    /// Hash of the resource's name. This will be used as the prefix for the keys in DB
     pub hash: [u8;4],
+    /// Prefix hash of the keys used for storing resource's version history
     pub history_hash: [u8;4],
-    pub reference_hash: [u8;4],
-    pub ref_props: Vec<String>,
+    /// Prefix hash of the keys used for storing the referrals from other resources
+    pub revinclude_hash: [u8;4],
+    /// A map of all reference properties and their associated prefix hashes
+    pub ref_props: HashMap<String, [u8; 4]>,
     pub attributes: HashMap<String, Box<PropertyDef>>,
     pub search_params: HashMap<&'static str, &'static SearchParamDef>
 }
@@ -98,6 +107,12 @@ impl SchemaDef {
 
 pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
     info!("parsing schema...");
+    let jschema = JSONSchema::compile(schema_doc);
+    if let Err(e) = jschema {
+        warn!("{}", e.to_string());
+        return Err(RaError::SchemaParsingError(e.to_string()));
+    }
+
     let prop_name = schema_doc.pointer("/discriminator/propertyName");
 
     info!("reading resource mappings");
@@ -112,18 +127,18 @@ pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
     let mapping = mapping.unwrap().as_object().unwrap();
     let global_props = parse_prop_definitions(schema_doc, mapping)?;
 
-    for (k, v) in mapping {
-        let hash: [u8; 4] = get_crc_hash(k);
-        let history_hash: [u8; 4] = get_crc_hash(&format!("{}_history", k));
-        let reference_hash: [u8; 4] = get_crc_hash(&format!("{}_reference", k));
+    for (res_name, res_def_path) in mapping {
+        let hash: [u8; 4] = utils::get_crc_hash(res_name);
+        let history_hash: [u8; 4] = utils::get_crc_hash(&format!("{}_history", res_name));
+        let revinclude_hash: [u8; 4] = utils::get_crc_hash(&format!("{}_revinclude", res_name));
 
-        let def_pointer = v.as_str().unwrap().strip_prefix("#").unwrap();
+        let def_pointer = res_def_path.as_str().unwrap().strip_prefix("#").unwrap();
         let res_schema_def = schema_doc.pointer(def_pointer).unwrap();
-        trace!("{}'s schema definition {}", k, res_schema_def);
+        trace!("{}'s schema definition {}", res_name, res_schema_def);
         let res_props = res_schema_def.as_object().unwrap();
         let res_props = res_props.get("properties").unwrap().as_object().unwrap();
 
-        let mut ref_props : Vec<String> = Vec::new();
+        let mut ref_props : HashMap<String, [u8; 4]> = HashMap::new();
         for (pk, pv) in res_props {
             let mut ref_prop = pv.get("$ref");
             if ref_prop.is_none() {
@@ -138,26 +153,28 @@ pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
                 let ref_prop = ref_prop.unwrap().as_str().unwrap();
                 if ref_prop == "#/definitions/Reference" {
                     trace!(">> reference property: {}", pk);
-                    ref_props.push(String::from(pk));
+                    let crc_hash = format!("{}_{}", res_name, pk);
+                    let crc_hash = utils::get_crc_hash(&crc_hash);
+                    ref_props.insert(String::from(pk), crc_hash);
                 }
             }
         }
 
         let attributes = parse_complex_prop_def(res_props)?;
         let res_def = ResourceDef {
-            name: String::from(k),
+            name: String::from(res_name),
             hash,
             history_hash,
-            reference_hash,
+            revinclude_hash,
             ref_props,
             attributes,
             search_params: HashMap::new() // TODO
         };
 
-        resource_defs.insert(String::from(k), res_def);
+        resource_defs.insert(String::from(res_name), res_def);
     }
 
-    let s = SchemaDef { props: global_props, resources: resource_defs };
+    let s = SchemaDef { props: global_props, resources: resource_defs, schema: jschema.unwrap() };
     Ok(s)
 }
 
@@ -244,30 +261,40 @@ fn parse_search_params() {
 
 }
 
-fn get_crc_hash(k: &String) -> [u8;4] {
-    let mut hasher = Hasher::new();
-    hasher.update(k.as_bytes());
-    let i = hasher.finalize();
-    i.to_le_bytes()
-}
-
 impl ResourceDef {
     /// generates a new ID with hash as the prefix
     /// this value is used as the DB record's key
-    pub fn new_prefix_id(&self, ksid: &[u8]) -> [u8; 24] {
-        self.prepare_id(&self.hash, ksid)
+    pub fn new_id(&self, ksid: &[u8]) -> [u8; 24] {
+        prefix_id(&self.hash, ksid)
     }
 
     /// generates a new version history ID with history hash as the prefix
     /// this value is used as the DB record's key
-    pub fn new_history_prefix_id(&self, ksid: &[u8]) -> [u8; 24] {
-        self.prepare_id(&self.history_hash, ksid)
+    pub fn new_history_id(&self, ksid: &[u8]) -> [u8; 24] {
+        prefix_id(&self.history_hash, ksid)
     }
 
-    fn prepare_id(&self, prefix: &[u8], ksid: &[u8]) -> [u8; 24]{
-        let mut tmp: [u8; 24] = [0; 24];
-        tmp[..4].copy_from_slice(prefix);
-        tmp[4..].copy_from_slice(ksid);
+    /// (_include) Observation(O1) -> Patient(P1) : <Observation-ref-attribute-crc32-hash><Observation-id><Patient-type-crc32-hash>=<Patient-id>
+    /// e.g <Observation_subject><O1><Patient><P1>
+    pub fn new_ref_fwd_id<S: AsRef<str>>(&self, for_at_name: S, from_id: &[u8], to: &ResourceDef, to_id: &[u8]) -> [u8; 48] {
+        let mut tmp: [u8; 48] = [0; 48];
+        let from_hash = self.ref_props.get(for_at_name.as_ref()).unwrap();
+        tmp[..4].copy_from_slice(from_hash);
+        tmp[4..24].copy_from_slice(from_id);
+        tmp[24..28].copy_from_slice(&to.hash);
+        tmp[28..].copy_from_slice(to_id);
+
+        tmp
+    }
+
+    /// (_revinclude) Observation(O1) <- Patient(P1) : <Patient_revinclude-crc32-hash><Patient-id><Observation-type-crc32-hash>=<Observation-id>
+    /// e.g <Patient_revinclude><P1><Observation><O1>
+    pub fn new_ref_rev_id(&self, to_id: &[u8], to: &ResourceDef, from_id: &[u8]) -> [u8; 48] {
+        let mut tmp: [u8; 48] = [0; 48];
+        tmp[..4].copy_from_slice(&to.revinclude_hash);
+        tmp[4..24].copy_from_slice(to_id);
+        tmp[24..28].copy_from_slice(&self.hash);
+        tmp[28..].copy_from_slice(from_id);
 
         tmp
     }
@@ -275,9 +302,10 @@ impl ResourceDef {
 
 #[cfg(test)]
 mod tests {
-    use crate::res_schema::{get_crc_hash, parse_res_def};
-    use crate::utils::u32_from_le_bytes;
+    use crate::res_schema::{parse_res_def, SchemaDef};
+    use crate::utils::{get_crc_hash, u32_from_le_bytes};
     use std::fs::File;
+    use anyhow::Error;
     use serde_json::Value;
     use crate::configure_log4rs;
     use crate::dtypes::DataType;
@@ -329,6 +357,12 @@ mod tests {
         assert_eq!(DataType::HUMANNAME, name.dtype);
     }
 
+    fn parse_schema() -> SchemaDef {
+        let f = File::open("test_data/fhir.schema-4.0.json").unwrap();
+        let v: Value = serde_json::from_reader(f).unwrap();
+        parse_res_def(&v).unwrap()
+    }
+
     struct AttributeCandidate<'a> {
         path: &'a str,
         found: bool,
@@ -338,10 +372,7 @@ mod tests {
 
     #[test]
     fn test_attribute_searching() {
-        let f = File::open("test_data/fhir.schema-4.0.json").unwrap();
-        let v: Value = serde_json::from_reader(f).unwrap();
-        let s = parse_res_def(&v).unwrap();
-
+        let s = parse_schema();
         let mut candidates = vec!();
         let name = AttributeCandidate{ path: "name", found: true, collection: true, primitive: false};
         candidates.push(name);
@@ -370,5 +401,29 @@ mod tests {
                 assert!(prop.is_none());
             }
         }
+    }
+
+    #[test]
+    fn test_reference_id_generation() -> Result<(), Error> {
+        let s = parse_schema();
+        let patient = s.resources.get("Patient").unwrap();
+        let observation = s.resources.get("Observation").unwrap();
+
+        let oid = ksuid::Ksuid::generate();
+        let subject = String::from("subject");
+        let ref_id = observation.new_ref_fwd_id(&subject, oid.as_bytes(), patient, oid.as_bytes());
+        assert_eq!(48, ref_id.len());
+        assert_eq!(observation.ref_props.get(&subject).unwrap(), &ref_id[..4]);
+        assert_eq!(oid.as_bytes(), &ref_id[4..24]);
+        assert_eq!(&patient.hash, &ref_id[24..28]);
+        assert_eq!(oid.as_bytes(), &ref_id[28..]);
+
+        let rev_ref_id = observation.new_ref_rev_id(oid.as_bytes(), patient, oid.as_bytes());
+        assert_eq!(48, rev_ref_id.len());
+        assert_eq!(&patient.revinclude_hash, &rev_ref_id[..4]);
+        assert_eq!(oid.as_bytes(), &rev_ref_id[4..24]);
+        assert_eq!(&observation.hash, &rev_ref_id[24..28]);
+        assert_eq!(oid.as_bytes(), &rev_ref_id[28..]);
+        Ok(())
     }
 }

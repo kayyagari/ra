@@ -14,11 +14,12 @@ use bson::{Bson, Document};
 use bson::spec::ElementType;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use ksuid::Ksuid;
+use lazy_static::lazy_static;
 use log::{debug, error, info, trace, warn};
 use rawbson::de::BsonDeserializer;
 use rawbson::DocBuf;
 use rawbson::elem::Element;
-use rocksdb::{DB, DBCompressionType, DBIteratorWithThreadMode, Env, IngestExternalFileOptions, IteratorMode, Options, ReadOptions};
+use rocksdb::{DB, DBCompressionType, DBIteratorWithThreadMode, Env, IngestExternalFileOptions, IteratorMode, Options, ReadOptions, WriteBatch};
 use serde_json::Value;
 use thiserror::private::PathAsDisplay;
 
@@ -26,13 +27,28 @@ use crate::errors::{EvalError, RaError};
 use crate::rapath::engine::eval;
 use crate::rapath::expr::Ast;
 use crate::rapath::stypes::SystemType;
-use crate::res_schema::ResourceDef;
+use crate::res_schema::{parse_res_def, ResourceDef, SchemaDef};
+use crate::resources::{get_default_schema_bytes, parse_compressed_json};
 use crate::utils;
+use crate::utils::{get_crc_hash, prefix_id};
+
+mod insert;
+
+const RA_METADATA_KEY_PREFIX: &str = "_____RA_METADATA_KEY_PREFIX_____";
+
+lazy_static! {
+ static ref SCHEMA_ID: [u8; 24] = {
+        let schema_id = Ksuid::from_base62("246MsJFiHFB6TxLOmZhJlwPAM1k").unwrap();
+        let prefix = get_crc_hash(RA_METADATA_KEY_PREFIX);
+        prefix_id(&prefix, schema_id.as_bytes())
+    };
+}
 
 pub struct Barn {
     env: Env,
     db: DB,
     opts: Options,
+    pub schema: SchemaDef
 }
 
 impl Barn {
@@ -60,69 +76,76 @@ impl Barn {
         if !db_path.exists() {
             let r = fs::create_dir_all(&db_path);
             if let Err(e) = r {
-                let msg = format!("unable to create the db environment directory {}", db_path.as_display());
+                let msg = format!("unable to create the database environment directory {}", db_path.as_display());
                 warn!("{}", &msg);
                 return Err(RaError::DbError(msg));
             }
         }
 
         let env = Env::default().unwrap();
-        info!("opened db environment");
+        info!("opened database environment");
         res_db_opts.set_env(&env);
         let mut res_db = DB::open(res_db_opts, &db_path).unwrap();
+
+        let schema_id: &[u8; 24] = &SCHEMA_ID;
+        println!("schema id {:?}", schema_id);
+        info!("reading schema from database");
+        let schema_data = res_db.get(schema_id);
+        if let Err(e) = schema_data {
+            let msg = format!("unable to read the schema data from database {}", db_path.as_display());
+            warn!("{}", &msg);
+            return Err(RaError::DbError(msg));
+        }
+
+        let schema_data = schema_data.unwrap();
+        let res_def;
+        if let Some(schema_data) = schema_data {
+            let value = parse_compressed_json(schema_data.as_slice())?;
+            res_def = parse_res_def(&value)?;
+        }
+        else {
+            info!("no default schema found in the database, creating...");
+            let data = get_default_schema_bytes();
+            let result = res_db.put(&schema_id, data);
+            if let Err(e) = result {
+                let msg = format!("failed to store schema in database {}", e);
+                warn!("{}", &msg);
+                return Err(RaError::SystemError(msg));
+            }
+            let value = parse_compressed_json(data)?;
+            res_def = parse_res_def(&value)?;
+        }
+
         let b = Barn {
             env,
             db: res_db,
-            opts: res_db_opts.clone()
+            opts: res_db_opts.clone(),
+            schema: res_def
         };
 
         Ok(b)
     }
 
-    pub fn insert(&self, res_def: &ResourceDef, data: &mut Document) -> Result<(), RaError> {
+    pub fn insert(&self, res_def: &ResourceDef, mut data: Document) -> Result<Document, RaError> {
         let ksid = Ksuid::generate();
-        let pk = res_def.new_prefix_id(ksid.as_bytes());
-
-        let res_id = ksid.to_base62();
-        debug!("inserting a {} with ID {}", &res_def.name, &res_id);
-        let res_id = Bson::from(res_id);
-        data.remove("id");
-        data.insert("id", res_id);
-
-        // TODO move this block to update and replace calls
-        // check version history
-        // let history_pk = res_def.new_history_prefix_id(ksid.as_bytes());
-        // let history_count_rec = self.db.get(&history_pk);
-        // let mut history_count = 1; // history number always points to the current version (and it always starts with 1)
-        // if history_count_rec.is_ok() {
-        //     let history_count_rec = history_count_rec.unwrap().unwrap();
-        //     history_count = utils::u32_from_le_bytes(history_count_rec.as_bytes());
-        // }
-
-        let mut vec_bytes = Vec::new();
-        data.to_writer(&mut vec_bytes);
-
-        let put_result = self.db.put(&pk, vec_bytes.as_slice());
-        if let Err(e) = put_result {
+        let mut wb = WriteBatch::default();
+        let doc = self.insert_batch(&ksid, res_def, data, &mut wb)?;
+        let result = self.db.write(wb);
+        if let Err(e) = result {
             let msg = format!("unable to insert the record {}", e);
             warn!("{}", &msg);
             return Err(RaError::DbError(msg));
         }
 
-        // handle references
-        // for ref_prop in &res_def.ref_props {
-        //     let ref_node = data.get(ref_prop.as_str());
-        //     if ref_node.is_some() {
-        //
-        //     }
-        // }
-        Ok(())
+        Ok(doc)
     }
+
+
 
     // pub fn get(&self, id: u64, res_name: String) -> Result<Document, RaError> {
     // }
 
-    pub fn search<'a>(&self, res_def: &ResourceDef, filter: &'a Ast<'a>) -> Result<Vec<Value>, EvalError> {
+    pub fn search<'a>(&self, res_def: &ResourceDef, filter: &'a Ast<'a>) -> Result<Vec<Document>, EvalError> {
         //let read_opts = ReadOptions::default();
         let mut results = Vec::new();
 
@@ -136,7 +159,7 @@ impl Barn {
             let pick = eval(&filter, st)?;
             if pick.is_truthy() {
                 let de = BsonDeserializer::from_rawbson(e);
-                let val: Value = rawbson::de::from_doc(e.as_document().unwrap())?;
+                let val: Document = rawbson::de::from_doc(e.as_document().unwrap())?;
                 results.push(val);
             }
         }
@@ -149,24 +172,22 @@ impl Barn {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+
     use crate::res_schema::parse_res_def;
     use crate::test_utils::{parse_expression, read_patient, to_docbuf};
+
     use super::*;
 
     #[test]
     fn test_search() -> Result<(), anyhow::Error> {
-        let f = File::open("test_data/fhir.schema-4.0.json")?;
-        let v: Value = serde_json::from_reader(f)?;
-        let s = parse_res_def(&v)?;
-        let patient_schema = s.resources.get("Patient").unwrap();
-
         let path = PathBuf::from("/tmp/testdb");
         std::fs::remove_dir_all(&path);
         let barn = Barn::open(&path)?;
+        let s = &barn.schema;
+        let patient_schema = s.resources.get("Patient").unwrap();
         let data = read_patient();
-        let data = bson::to_bson(&data).unwrap();
-        let mut data = data.as_document().unwrap().to_owned();
-        barn.insert(patient_schema, &mut data)?;
+        let data = bson::to_document(&data).unwrap();
+        let mut data = barn.insert(patient_schema, data)?;
         data.remove("id");
         let inserted_data = DocBuf::from_document(&data);
         let inserted_data = Element::new(ElementType::EmbeddedDocument, inserted_data.as_bytes());
@@ -180,8 +201,8 @@ mod tests {
         assert_eq!(1, results.len());
 
         let mut fetched_data = results.into_iter().next().unwrap();
-        fetched_data.as_object_mut().unwrap().remove("id");
-        let fetched_data = to_docbuf(&fetched_data);
+        fetched_data.remove("id");
+        let fetched_data = DocBuf::from_document(&fetched_data);
         let fetched_data = Element::new(ElementType::EmbeddedDocument, fetched_data.as_bytes());
 
         assert_eq!(SystemType::Element(inserted_data), SystemType::Element(fetched_data));

@@ -19,12 +19,8 @@ mod dtypes;
 mod search;
 pub mod rapath;
 mod test_utils;
-
-#[derive(Error, Debug)]
-pub enum RaError {
-    #[error("{0}")]
-    SchemaParsingError(String)
-}
+pub mod importer;
+mod resources;
 
 fn configure_log4rs() {
     let stdout = ConsoleAppender::builder()

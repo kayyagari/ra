@@ -1,3 +1,5 @@
+use crc32fast::Hasher;
+
 pub fn u32_from_le_bytes(b: &[u8]) -> u32 {
     let mut d : u32 = 0;
     for i in 0..4 {
@@ -5,4 +7,19 @@ pub fn u32_from_le_bytes(b: &[u8]) -> u32 {
     }
 
     d
+}
+
+pub fn get_crc_hash<S: AsRef<str>>(k: S) -> [u8;4] {
+    let mut hasher = Hasher::new();
+    hasher.update(k.as_ref().as_bytes());
+    let i = hasher.finalize();
+    i.to_le_bytes()
+}
+
+pub fn prefix_id(prefix: &[u8], ksid: &[u8]) -> [u8; 24]{
+    let mut tmp: [u8; 24] = [0; 24];
+    tmp[..4].copy_from_slice(prefix);
+    tmp[4..].copy_from_slice(ksid);
+
+    tmp
 }

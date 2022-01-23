@@ -8,16 +8,17 @@ use thiserror::Error;
 pub enum RaError {
     #[error("{0}")]
     DbError(String),
+    #[error("{0}")]
+    InvalidValueError(String),
+    #[error("{0}")]
+    SystemError(String),
+    #[error("{0}")]
+    SchemaParsingError(String)
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::errors::RaError;
-
-    #[test]
-    fn test_error() {
-        let re = RaError::DbError(String::from("this is the message"));
-        println!("{:?}", re);
+impl RaError {
+    pub fn invalid_err<S: AsRef<str>>(msg: S) -> Self {
+        Self::InvalidValueError(String::from(msg.as_ref()))
     }
 }
 
@@ -58,6 +59,7 @@ impl Display for EvalError {
 }
 
 impl EvalError {
+    // TODO change to accept &str and String then remove from_str()
     pub fn new(msg: String) -> Self {
         EvalError{msg}
     }
@@ -96,5 +98,16 @@ impl Display for ScanError {
             f.write_str(e.as_str())?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::errors::RaError;
+
+    #[test]
+    fn test_error() {
+        let re = RaError::DbError(String::from("this is the message"));
+        println!("{:?}", re);
     }
 }
