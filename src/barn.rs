@@ -11,7 +11,7 @@ use std::sync::mpsc::Sender;
 use std::time::Instant;
 
 use bson::{Bson, Document};
-use bson::spec::ElementType;
+use rawbson::elem::ElementType;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use ksuid::Ksuid;
 use lazy_static::lazy_static;

@@ -21,6 +21,7 @@ pub mod rapath;
 mod test_utils;
 pub mod importer;
 mod resources;
+mod api;
 
 fn configure_log4rs() {
     let stdout = ConsoleAppender::builder()
