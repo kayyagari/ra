@@ -42,8 +42,8 @@ impl ReturnContent {
 }
 
 #[rocket::async_trait]
-impl<'r> Responder<'r, 'static> for RaError {
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
+impl<'r, 'o: 'r> Responder<'r, 'o> for RaError {
+    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'o> {
         match self {
             RaError::DbError(s) | RaError::SchemaParsingError(s) => {
                 Response::build()
@@ -68,14 +68,15 @@ impl<'r> Responder<'r, 'static> for RaError {
     }
 }
 
-impl<'r> Responder<'r, 'static> for RaResponse {
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
+impl<'r, 'o: 'r> Responder<'r, 'o> for RaResponse {
+    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'o> {
         match self {
             RaResponse::Created(doc) => {
                 let id = doc.get("id").unwrap().as_str().unwrap();
+                let loc = format!("{}/{}", request.uri(), id);
                 Response::build()
                     .status(Status::Created)
-                    // .header(Header::new("Location", id))
+                    .header(Header::new("Location", loc))
                     .ok()
             },
             RaResponse::Success => {
@@ -96,7 +97,7 @@ fn parse_input(d: &str) -> Result<Value, RaError> {
 }
 
 #[post("/<res_name>?<hints..>", data = "<data>")]
-pub fn create(res_name: &str, data: &str, hints: ResponseHints<'_>, base: &State<ApiBase>) -> Result<RaResponse, RaError> {
+pub fn create(res_name: &str, data: &str, hints: Option<ResponseHints<'_>>, base: &State<ApiBase>) -> Result<RaResponse, RaError> {
     let val = parse_input(data)?;
     base.create(res_name, &val)
 }
