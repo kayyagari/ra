@@ -8,6 +8,7 @@ use crate::dtypes::DataType;
 use crate::{utils};
 use crate::errors::RaError;
 use crate::utils::prefix_id;
+use crate::validator::validate_resource;
 
 extern crate crc32fast;
 
@@ -102,6 +103,10 @@ impl SchemaDef {
         }
 
         prop
+    }
+
+    pub fn validate(&self, val: &Value) -> Result<(), RaError> {
+        validate_resource(&self.schema, val)
     }
 }
 

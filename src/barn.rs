@@ -19,7 +19,7 @@ use log::{debug, error, info, trace, warn};
 use rawbson::de::BsonDeserializer;
 use rawbson::DocBuf;
 use rawbson::elem::Element;
-use rocksdb::{DB, DBCompressionType, DBIteratorWithThreadMode, Env, IngestExternalFileOptions, IteratorMode, Options, ReadOptions, WriteBatch};
+use rocksdb::{DB, DBCompressionType, Env, Options, WriteBatch};
 use serde_json::Value;
 use thiserror::private::PathAsDisplay;
 
@@ -47,14 +47,19 @@ lazy_static! {
 pub struct Barn {
     env: Env,
     db: DB,
-    opts: Options,
-    pub schema: SchemaDef
+    opts: Options
 }
 
 impl Barn {
     pub fn open(db_path: &PathBuf) -> Result<Barn, RaError> {
         let mut opts = Self::default_db_options();
         Barn::_open(db_path, &mut opts)
+    }
+
+    pub fn open_with_default_schema(db_path: &PathBuf) -> Result<Barn, RaError> {
+        let b = Barn::open(db_path)?;
+        b.store_schema(get_default_schema_bytes())?;
+        Ok(b)
     }
 
     fn default_db_options() -> Options {
@@ -87,49 +92,50 @@ impl Barn {
         res_db_opts.set_env(&env);
         let mut res_db = DB::open(res_db_opts, &db_path).unwrap();
 
-        let schema_id: &[u8; 24] = &SCHEMA_ID;
-        println!("schema id {:?}", schema_id);
-        info!("reading schema from database");
-        let schema_data = res_db.get(schema_id);
-        if let Err(e) = schema_data {
-            let msg = format!("unable to read the schema data from database {}", db_path.as_display());
-            warn!("{}", &msg);
-            return Err(RaError::DbError(msg));
-        }
-
-        let schema_data = schema_data.unwrap();
-        let res_def;
-        if let Some(schema_data) = schema_data {
-            let value = parse_compressed_json(schema_data.as_slice())?;
-            res_def = parse_res_def(&value)?;
-        }
-        else {
-            info!("no default schema found in the database, creating...");
-            let data = get_default_schema_bytes();
-            let result = res_db.put(&schema_id, data);
-            if let Err(e) = result {
-                let msg = format!("failed to store schema in database {}", e);
-                warn!("{}", &msg);
-                return Err(RaError::SystemError(msg));
-            }
-            let value = parse_compressed_json(data)?;
-            res_def = parse_res_def(&value)?;
-        }
-
         let b = Barn {
             env,
             db: res_db,
-            opts: res_db_opts.clone(),
-            schema: res_def
+            opts: res_db_opts.clone()
         };
 
         Ok(b)
     }
 
-    pub fn insert(&self, res_def: &ResourceDef, mut data: Document) -> Result<Document, RaError> {
+    pub fn store_schema(&self, data: &[u8]) -> Result<(), RaError> {
+        info!("storing schema");
+        let result = self.db.put(&*SCHEMA_ID, data);
+        if let Err(e) = result {
+            let msg = format!("failed to store schema in database {}", e);
+            warn!("{}", &msg);
+            return Err(RaError::DbError(msg));
+        }
+
+        Ok(())
+    }
+
+    pub fn read_schema(&self) -> Result<Value, RaError> {
+        info!("reading schema from database");
+        let schema_data = self.db.get(&*SCHEMA_ID);
+        if let Err(e) = schema_data {
+            let msg = "unable to read the schema data from database";
+            warn!("{}", msg);
+            return Err(RaError::DbError(String::from(msg)));
+        }
+
+        let schema_data = schema_data.unwrap();
+
+        if let Some(schema_data) = schema_data {
+            let value = parse_compressed_json(schema_data.as_slice())?;
+            return Ok(value);
+        }
+
+        Err(RaError::DbError(String::from("schema entry exists but there is no data")))
+    }
+
+    pub fn insert(&self, res_def: &ResourceDef, mut data: Document, sd: &SchemaDef) -> Result<Document, RaError> {
         let ksid = Ksuid::generate();
         let mut wb = WriteBatch::default();
-        let doc = self.insert_batch(&ksid, res_def, data, &mut wb)?;
+        let doc = self.insert_batch(&ksid, res_def, data, &mut wb, sd)?;
         let result = self.db.write(wb);
         if let Err(e) = result {
             let msg = format!("unable to insert the record {}", e);
@@ -146,13 +152,16 @@ impl Barn {
     // }
 
     pub fn search<'a>(&self, res_def: &ResourceDef, filter: &'a Ast<'a>) -> Result<Vec<Document>, EvalError> {
-        //let read_opts = ReadOptions::default();
         let mut results = Vec::new();
 
         //let mut count = 0;
         //let start = Instant::now();
-        let mut inner = self.db.prefix_iterator(&res_def.hash);
+        let prefix = &res_def.hash;
+        let mut inner = self.db.prefix_iterator(prefix);
         for (k, v) in inner {
+            if !k.starts_with(prefix) {
+                break;
+            }
             //count += 1;
             let e = Element::new(ElementType::EmbeddedDocument, v.as_ref());
             let st = Rc::new(SystemType::Element(e));
@@ -166,6 +175,12 @@ impl Barn {
         //let elapsed = start.elapsed().as_secs();
         //println!("time took to search through {} records {}", count, elapsed);
         Ok(results)
+    }
+
+    pub fn save_batch(&self, wb: WriteBatch) -> Result<(), RaError> {
+        debug!("saving batch");
+        self.db.write(wb)?;
+        Ok(())
     }
 }
 
@@ -182,12 +197,12 @@ mod tests {
     fn test_search() -> Result<(), anyhow::Error> {
         let path = PathBuf::from("/tmp/testdb");
         std::fs::remove_dir_all(&path);
-        let barn = Barn::open(&path)?;
-        let s = &barn.schema;
-        let patient_schema = s.resources.get("Patient").unwrap();
+        let barn = Barn::open_with_default_schema(&path)?;
+        let sd = parse_res_def(&barn.read_schema()?)?;
+        let patient_schema = sd.resources.get("Patient").unwrap();
         let data = read_patient();
         let data = bson::to_document(&data).unwrap();
-        let mut data = barn.insert(patient_schema, data)?;
+        let mut data = barn.insert(patient_schema, data, &sd)?;
         data.remove("id");
         let inserted_data = DocBuf::from_document(&data);
         let inserted_data = Element::new(ElementType::EmbeddedDocument, inserted_data.as_bytes());

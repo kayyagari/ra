@@ -1,4 +1,5 @@
-use bson::{Bson, Document};
+use std::cmp::Ordering;
+use bson::{Document};
 use ksuid::Ksuid;
 use serde::Serialize;
 use serde_json::Value;
@@ -6,16 +7,24 @@ use serde_json::Value;
 use crate::errors::RaError;
 
 pub struct RequestBundle {
-    btype: BundleType,
-    entries: Vec<Entry>
+    pub btype: BundleType,
+    pub entries: Vec<Entry>
+}
+
+#[derive(Serialize)]
+pub struct ResponseBundle {
+    #[serde(rename = "type")]
+    pub btype: BundleType,
 }
 
 #[derive(Serialize)]
 pub struct Entry {
-    req_method: Method,
-    req_url: String,
-    full_url: String,
-    resource: Document
+    pub req_method: Method,
+    pub req_url: String,
+    pub full_url: String,
+    pub resource: Document,
+    #[serde(skip_serializing)]
+    pub ra_id: Ksuid
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
@@ -31,14 +40,18 @@ pub enum BundleType {
     Collection
 }
 
-#[derive(Serialize)]
+/// the values of this enum are placed in the respective positions
+/// based on the transaction processing rules of a bundle so that
+/// entries can be sorted using the Vec.sort() function
+/// DO NOT alter the positions of values in this enum
+#[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Method {
-    Get,
-    Head,
+    Delete,
     Post,
     Put,
-    Delete,
-    Patch
+    Patch,
+    Get,
+    Head
 }
 
 impl Method {
@@ -97,10 +110,28 @@ impl RequestBundle {
                 RequestBundle::replace_refs(resource_val, &ref_links);
             }
 
+            let ra_id = resource_val.get("id");
+            if let None = ra_id {
+                return Err(RaError::invalid_err(format!("missing id attribute in the resource with fullUrl {}", full_url)));
+            }
+            let ra_id = ra_id.unwrap().as_str();
+            if let None = ra_id {
+                return Err(RaError::invalid_err(format!("no id found in the resource with fullUrl {}", full_url)));
+            }
+            let ra_id = Ksuid::from_base62(ra_id.unwrap());
+            if let Err(e) = ra_id {
+                return Err(RaError::invalid_err(format!("invalid id found in the resource with fullUrl {}", full_url)));
+            }
+            let ra_id = ra_id.unwrap();
+
             let resource = bson::to_document(resource_val).unwrap();
 
-            let e = Entry { full_url, req_url, req_method, resource };
+            let e = Entry { full_url, req_url, req_method, resource, ra_id };
             resources.push(e);
+        }
+
+        if btype == BundleType::Transaction {
+            resources.sort_unstable();
         }
 
         Ok(RequestBundle { btype, entries: resources })
@@ -155,7 +186,7 @@ impl RequestBundle {
                 }
             },
             Value::Object(m) => {
-                for (k, o) in m {
+                for (_, o) in m {
                     RequestBundle::replace_refs(o, refs);
                 }
             },
@@ -166,6 +197,26 @@ impl RequestBundle {
             }
             _ => {}
         }
+    }
+}
+
+impl Eq for Entry{}
+impl PartialEq for Entry{
+    fn eq(&self, other: &Self) -> bool {
+        self.full_url.eq(&other.full_url)
+    }
+}
+
+impl Ord for Entry{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.req_method.cmp(&other.req_method)
+    }
+}
+
+impl PartialOrd for Entry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        //Some(self.req_method.cmp(&other.req_method))
+        Some(self.cmp(other))
     }
 }
 

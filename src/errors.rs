@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use bson::document::ValueAccessError;
 use rawbson::RawError;
 
 use thiserror::Error;
@@ -10,10 +11,12 @@ pub enum RaError {
     DbError(String),
     #[error("{0}")]
     InvalidValueError(String),
+    // #[error("{0}")]
+    // SystemError(String),
     #[error("{0}")]
-    SystemError(String),
-    #[error("{0}")]
-    SchemaParsingError(String)
+    SchemaParsingError(String),
+    #[error("")]
+    SchemaValidationError
 }
 
 impl RaError {
@@ -78,6 +81,28 @@ impl<'a> From<RawError> for EvalError {
 impl<'a> From<rawbson::de::Error> for EvalError {
     fn from(err: rawbson::de::Error) -> Self {
         EvalError::new(err.to_string())
+    }
+}
+
+impl From<ValueAccessError> for RaError {
+    fn from(e: ValueAccessError) -> Self {
+        match e {
+            ValueAccessError::NotPresent => RaError::invalid_err("missing attribute"),
+            ValueAccessError::UnexpectedType => RaError::invalid_err("invalid conversion attempt on attribute value"),
+            _ => RaError::invalid_err(e.to_string())
+        }
+    }
+}
+
+impl From<rocksdb::Error> for RaError {
+    fn from(e: rocksdb::Error) -> Self {
+        RaError::DbError(e.to_string())
+    }
+}
+
+impl From<bson::ser::Error> for RaError {
+    fn from(e: bson::ser::Error) -> Self {
+        RaError::invalid_err(e.to_string())
     }
 }
 

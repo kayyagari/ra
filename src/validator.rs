@@ -1,6 +1,7 @@
 use jsonschema::{JSONSchema};
 use serde_json::{Value};
 use thiserror::Error;
+use crate::errors::RaError;
 
 #[derive(Error, Debug)]
 pub enum ValidationError {
@@ -8,16 +9,17 @@ pub enum ValidationError {
     InvalidElement(String)
 }
 
-pub fn validate_resource(schema: &JSONSchema, r: &Value) -> Result<(), Vec<ValidationError>> {
+pub fn validate_resource(schema: &JSONSchema, r: &Value) -> Result<(), RaError> {
     let result = schema.validate(r);
     if result.is_err() {
         let errors = result.err().unwrap();
+        /* this is including the whole input instead of just the offending parts
         let mut schema_errors: Vec<ValidationError> = Vec::new();
         for e in errors {
             schema_errors.push(ValidationError::InvalidElement(e.to_string()));
-        }
+        }*/
 
-        return Err(schema_errors);
+        return Err(RaError::SchemaValidationError);
     }
 
     Ok(())

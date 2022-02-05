@@ -6,10 +6,11 @@ use log::debug;
 use rocksdb::WriteBatch;
 use crate::barn::Barn;
 use crate::errors::RaError;
+use crate::res_schema::SchemaDef;
 use crate::ResourceDef;
 
 impl Barn {
-    pub fn insert_batch(&self, ksid: &Ksuid, res_def: &ResourceDef, mut data: Document, wb: &mut WriteBatch) -> Result<Document, RaError> {
+    pub fn insert_batch(&self, ksid: &Ksuid, res_def: &ResourceDef, mut data: Document, wb: &mut WriteBatch, sd: &SchemaDef) -> Result<Document, RaError> {
         let res_id = ksid.to_base62();
         debug!("inserting a {} with ID {}", &res_def.name, &res_id);
         data.insert("id", Bson::from(res_id));
@@ -55,12 +56,12 @@ impl Barn {
                         let ref_arr = ref_node.as_array();
                         if let Some(ref_arr) = ref_arr {
                             for item in ref_arr.iter() {
-                                self.insert_ref(ref_prop, ksid.as_bytes(), item, res_def, wb);
+                                self.insert_ref(ref_prop, ksid.as_bytes(), item, res_def, wb, sd);
                             }
                         }
                     },
                     _ => {
-                        self.insert_ref(ref_prop, ksid.as_bytes(), ref_node, res_def, wb);
+                        self.insert_ref(ref_prop, ksid.as_bytes(), ref_node, res_def, wb, sd);
                     }
                 }
             }
@@ -68,13 +69,13 @@ impl Barn {
         Ok(data)
     }
 
-    fn insert_ref<S: AsRef<str>>(&self, ref_at_name: S, from_id: &[u8], item: &Bson, from: &ResourceDef, wb: &mut WriteBatch) -> Result<(), RaError> {
+    fn insert_ref<S: AsRef<str>>(&self, ref_at_name: S, from_id: &[u8], item: &Bson, from: &ResourceDef, wb: &mut WriteBatch, sd: &SchemaDef) -> Result<(), RaError> {
         if let Some(item) = item.as_document() {
             if let Some(target) = item.get("reference") {
                 if let Some(target) = target.as_str() {
                     let parts: Vec<&str> = target.split("/").collect();
                     if parts.len() == 2 {
-                        let to = self.schema.resources.get(parts[0]);
+                        let to = sd.resources.get(parts[0]);
                         if let None = to {
                             return Err(RaError::invalid_err(format!("resource not found with the name {} in the reference {}", parts[0], target)));
                         }

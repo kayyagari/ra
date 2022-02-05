@@ -21,9 +21,9 @@ pub mod rapath;
 mod test_utils;
 pub mod importer;
 mod resources;
-mod api;
+pub mod api;
 
-fn configure_log4rs() {
+pub fn configure_log4rs() {
     let stdout = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} [{X(request_id)(no_request_id)}] {l} {M} - {m}\n")))
         .build();
