@@ -10,6 +10,7 @@ name = "ra_registry"
 [dependencies]
 jsonschema = "0.13.3"
 serde_json = "1.0.78"
+serde = { version = "1.0.135", features = ["derive"] }
 thiserror = "1.0.30"
 anyhow = "1.0.53"
 ksuid = {path = "../ksuid"}
@@ -20,8 +21,10 @@ log-mdc = "0.1.0"
 rocksdb = "0.17.0"
 #rawbson = "0.2.1"
 rawbson = {path = "../rawbson"}
-bson = "1.2.2" # TODO update to latest version
+#bson = "1.2.2" # TODO update to latest version
+bson = {path = "../bson-rust", features = ["u2i"]} # TODO forked for accessing internal serde module
 chrono = "0.4.19"
 lazy_static = "1.4.0"
 zip = {version = "0.5.13", features=["bzip2"]}
+rocket = {version = "0.5.0-rc.1", features = ["json"]}
 bzip2-rs = "0.1.2"
