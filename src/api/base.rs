@@ -68,8 +68,13 @@ impl ApiBase {
     }
 
     pub fn create(&self, res_name: &str, val: &Value) -> Result<RaResponse, RaError> {
+        self.schema.validate(&val)?;
         let doc = bson::to_document(val)?;
         let rd = self.get_res_def(&doc)?;
+
+        if res_name != rd.name {
+            return Err(RaError::bad_req(format!("received {}'s data on {}'s endpoint", &rd.name, res_name)));
+        }
 
         let doc = self.db.insert(rd, doc, &self.schema)?;
         Ok(RaResponse::Created(doc))
@@ -83,7 +88,7 @@ impl ApiBase {
         let res_type = d.get_str("resourceType")?;
         let rd = self.schema.resources.get(res_type);
         if let None = rd {
-            return Err(RaError::invalid_err(format!("unknown resourceType {}", res_type)));
+            return Err(RaError::bad_req(format!("unknown resourceType {}", res_type)));
         }
 
         Ok(rd.unwrap())

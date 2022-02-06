@@ -10,7 +10,7 @@ pub enum RaError {
     #[error("{0}")]
     DbError(String),
     #[error("{0}")]
-    InvalidValueError(String),
+    BadRequest(String),
     // #[error("{0}")]
     // SystemError(String),
     #[error("{0}")]
@@ -20,8 +20,8 @@ pub enum RaError {
 }
 
 impl RaError {
-    pub fn invalid_err<S: AsRef<str>>(msg: S) -> Self {
-        Self::InvalidValueError(String::from(msg.as_ref()))
+    pub fn bad_req<S: AsRef<str>>(msg: S) -> Self {
+        Self::BadRequest(String::from(msg.as_ref()))
     }
 }
 
@@ -87,9 +87,9 @@ impl<'a> From<rawbson::de::Error> for EvalError {
 impl From<ValueAccessError> for RaError {
     fn from(e: ValueAccessError) -> Self {
         match e {
-            ValueAccessError::NotPresent => RaError::invalid_err("missing attribute"),
-            ValueAccessError::UnexpectedType => RaError::invalid_err("invalid conversion attempt on attribute value"),
-            _ => RaError::invalid_err(e.to_string())
+            ValueAccessError::NotPresent => RaError::bad_req("missing attribute"),
+            ValueAccessError::UnexpectedType => RaError::bad_req("invalid conversion attempt on attribute value"),
+            _ => RaError::bad_req(e.to_string())
         }
     }
 }
@@ -102,7 +102,7 @@ impl From<rocksdb::Error> for RaError {
 
 impl From<bson::ser::Error> for RaError {
     fn from(e: bson::ser::Error) -> Self {
-        RaError::invalid_err(e.to_string())
+        RaError::bad_req(e.to_string())
     }
 }
 

@@ -77,11 +77,11 @@ impl Barn {
                     if parts.len() == 2 {
                         let to = sd.resources.get(parts[0]);
                         if let None = to {
-                            return Err(RaError::invalid_err(format!("resource not found with the name {} in the reference {}", parts[0], target)));
+                            return Err(RaError::bad_req(format!("resource not found with the name {} in the reference {}", parts[0], target)));
                         }
                         let to_id = Ksuid::from_base62(parts[1]);
                         if let Err(e) = to_id {
-                            return Err(RaError::invalid_err(format!("reference ID {} is in invalid format", parts[1])));
+                            return Err(RaError::bad_req(format!("reference ID {} is in invalid format", parts[1])));
                         }
                         let to = to.unwrap();
                         let to_id = to_id.unwrap();
@@ -93,7 +93,7 @@ impl Barn {
                         wb.put(rev_id, empty_val);
                     }
                     else {
-                        return Err(RaError::invalid_err(format!("invalid format of reference {}, should be <Resource-name>/<ID>", target)));
+                        return Err(RaError::bad_req(format!("invalid format of reference {}, should be <Resource-name>/<ID>", target)));
                     }
                 }
                 else {

@@ -64,7 +64,7 @@ impl Method {
             "PUT" => Ok(Put),
             "DELETE" => Ok(Delete),
             "PATCH" => Ok(Patch),
-            name => Err(RaError::invalid_err(format!("unknown method name {}", name)))
+            name => Err(RaError::bad_req(format!("unknown method name {}", name)))
         }
     }
 }
@@ -82,7 +82,7 @@ impl BundleType {
             "history" => Ok(History),
             "searchset" => Ok(SearchSet),
             "collection" => Ok(Collection),
-            name => Err(RaError::invalid_err(format!("unknown bundle type {}", name)))
+            name => Err(RaError::bad_req(format!("unknown bundle type {}", name)))
         }
     }
 }
@@ -112,15 +112,15 @@ impl RequestBundle {
 
             let ra_id = resource_val.get("id");
             if let None = ra_id {
-                return Err(RaError::invalid_err(format!("missing id attribute in the resource with fullUrl {}", full_url)));
+                return Err(RaError::bad_req(format!("missing id attribute in the resource with fullUrl {}", full_url)));
             }
             let ra_id = ra_id.unwrap().as_str();
             if let None = ra_id {
-                return Err(RaError::invalid_err(format!("no id found in the resource with fullUrl {}", full_url)));
+                return Err(RaError::bad_req(format!("no id found in the resource with fullUrl {}", full_url)));
             }
             let ra_id = Ksuid::from_base62(ra_id.unwrap());
             if let Err(e) = ra_id {
-                return Err(RaError::invalid_err(format!("invalid id found in the resource with fullUrl {}", full_url)));
+                return Err(RaError::bad_req(format!("invalid id found in the resource with fullUrl {}", full_url)));
             }
             let ra_id = ra_id.unwrap();
 
@@ -150,13 +150,13 @@ impl RequestBundle {
                     let new_id = Ksuid::generate().to_base62();
                     let res_type = resource.get("resourceType").unwrap().as_str();
                     if res_type.is_none() {
-                        return Err(RaError::invalid_err(format!("missing resourceType in the entry with id {}", &old_url)));
+                        return Err(RaError::bad_req(format!("missing resourceType in the entry with id {}", &old_url)));
                     }
 
                     let res_type = res_type.unwrap();
                     // only URN is supported
                     if !old_url.starts_with("urn:uuid:") {
-                        return Err(RaError::invalid_err(format!("only fullUrl of type urn:uuid: is allowed, offending entry with id {}", &old_url)));
+                        return Err(RaError::bad_req(format!("only fullUrl of type urn:uuid: is allowed, offending entry with id {}", &old_url)));
                     }
 
                     let old_id = old_url.split_at(9).1.to_owned();

@@ -10,15 +10,11 @@ pub enum ValidationError {
 }
 
 pub fn validate_resource(schema: &JSONSchema, r: &Value) -> Result<(), RaError> {
-    let result = schema.validate(r);
-    if result.is_err() {
-        let errors = result.err().unwrap();
-        /* this is including the whole input instead of just the offending parts
-        let mut schema_errors: Vec<ValidationError> = Vec::new();
-        for e in errors {
-            schema_errors.push(ValidationError::InvalidElement(e.to_string()));
-        }*/
-
+    // is_valid() is faster than validate()
+    // and because validate() wasn't giving the precise details of the offending element
+    // it is good to replace with is_valid()
+    let valid = schema.is_valid(r);
+    if !valid {
         return Err(RaError::SchemaValidationError);
     }
 

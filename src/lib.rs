@@ -22,6 +22,7 @@ mod test_utils;
 pub mod importer;
 mod resources;
 pub mod api;
+mod bson_utils;
 
 pub fn configure_log4rs() {
     let stdout = ConsoleAppender::builder()

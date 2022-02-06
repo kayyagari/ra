@@ -1,8 +1,9 @@
 use std::io::Cursor;
 
-use rocket::{Data, FromForm, post, Request, Response, State};
+use rocket::{Config, Data, FromForm, post, Request, Response, State};
 use rocket::data::FromData;
 use rocket::http::{ContentType, Header, Status};
+use rocket::http::hyper::header::LAST_MODIFIED;
 use rocket::request::{FromRequest, Outcome};
 use rocket::response::content::Json;
 use rocket::response::Responder;
@@ -10,6 +11,7 @@ use rocket::serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::base::{ApiBase, RaResponse};
+use crate::bson_utils;
 use crate::errors::RaError;
 
 #[derive(FromForm)]
@@ -55,10 +57,10 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaError {
                 let msg = "schema validation failed";
                 Response::build()
                     .sized_body(msg.len(), Cursor::new(msg))
-                    .status(Status::BadRequest)
+                    .status(Status::InternalServerError)
                     .ok()
             },
-            RaError::InvalidValueError(s) => {
+            RaError::BadRequest(s) => {
                 Response::build()
                     .sized_body(s.len(), Cursor::new(s))
                     .status(Status::BadRequest)
@@ -72,11 +74,22 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaResponse {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'o> {
         match self {
             RaResponse::Created(doc) => {
-                let id = doc.get("id").unwrap().as_str().unwrap();
-                let loc = format!("{}/{}", request.uri(), id);
+                let id = doc.get_str("id").unwrap();
+                let res_type = doc.get_str("resourceType").unwrap();
+                let vid = bson_utils::get_int(&doc, "meta.versionId");
+
+                // let cfg = request.rocket().config();
+                let loc = format!("{}/{}/_history/{}", res_type, id, vid);
+
+                let last_modified = bson_utils::get_time(&doc, "meta.lastUpdated").unwrap();
+                //Last-Modified: <day-name>, <day> <month> <year> <hour>:<minute>:<second> GMT
+                let last_modified = last_modified.format("%a, %d %m %Y %H:%M:%S GMT").to_string();
+
                 Response::build()
                     .status(Status::Created)
-                    .header(Header::new("Location", loc))
+                    .raw_header("Location", loc)
+                    .raw_header("Etag", vid.to_string())
+                    .raw_header("Last-Modified", last_modified)
                     .ok()
             },
             RaResponse::Success => {
@@ -91,7 +104,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaResponse {
 fn parse_input(d: &str) -> Result<Value, RaError> {
     let val: serde_json::Result<Value> = serde_json::from_str(d);
     if let Err(e) = val {
-        return Err(RaError::invalid_err(e.to_string()));
+        return Err(RaError::bad_req(e.to_string()));
     }
     Ok(val.unwrap())
 }

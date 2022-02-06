@@ -4,7 +4,10 @@ use std::fs::File;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::Instant;
+use bson::spec::BinarySubtype::Uuid;
+use ksuid::Ksuid;
 use rocket::{Config, routes};
+use rocket::fairing::AdHoc;
 use serde_json::Value;
 use zip::ZipArchive;
 use ra_registry::api::base::ApiBase;
@@ -27,7 +30,13 @@ async fn main() {
     let mut config = Config::default();
     config.address = Ipv4Addr::new(0,0,0,0).into();
     config.port = 7090;
-    let server = rocket::build().manage(api_base).configure(config);
+    config.cli_colors = false;
+
+    let mut server = rocket::build().manage(api_base).configure(config);
+    server = server.attach(AdHoc::on_request("Create trace ID", |req, _| Box::pin(async move {
+            log_mdc::insert("request_id", uuid::Uuid::new_v4().to_string());
+        }
+    )));
     server.mount("/", routes![rest::create]).launch().await;
 
     // let sd = parse_res_def(&barn.read_schema()?).unwrap();
