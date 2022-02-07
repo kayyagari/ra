@@ -1,11 +1,13 @@
 use bson::Document;
 use log::debug;
 use rocksdb::WriteBatch;
+use serde::{Serialize, Deserialize};
 use serde_json::Value;
+
 use crate::api::bundle;
 use crate::api::bundle::{Method, RequestBundle};
 use crate::barn::Barn;
-use crate::errors::{EvalError, RaError};
+use crate::errors::{EvalError, IssueSeverity, IssueType, RaError};
 use crate::rapath::expr::Ast;
 use crate::res_schema::{parse_res_def, SchemaDef};
 use crate::ResourceDef;
@@ -20,8 +22,46 @@ pub enum RaResponse {
     Created(Document)
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct OperationOutcome {
+    #[serde(rename="resourceType")]
+    rtype: &'static str,
+    text: Narrative,
+    issue: Vec<Box<BackboneElement>>
+}
 
+#[derive(Serialize, Deserialize)]
+struct	BackboneElement {
+    severity: IssueSeverity,
+    code: IssueType,
+    diagnostics: String,
+    //expression: Option<String>
+}
+
+#[derive(Serialize, Deserialize)]
+struct Narrative {
+    status: NarrativeStatus,
+    div: String
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum NarrativeStatus {
+    Generated,
+    Extensions,
+    Additional,
+    Empty
+}
+
+impl OperationOutcome {
+    pub fn new_error<S: AsRef<str>>(code: IssueType, msg: S) -> Self {
+        let r = msg.as_ref();
+        let div = format!(r#"<div xmlns="http://www.w3.org/1999/xhtml"><h1>Operation Outcome</h1><span>{}</span></div>"#, r);
+        let text = Narrative{status: NarrativeStatus::Generated, div};
+        let i1 = BackboneElement{severity: IssueSeverity::Error, code, diagnostics: r.to_string()};
+        let issue = vec![Box::new(i1)];
+        OperationOutcome{issue, text, rtype: "OperationOutcome"}
+    }
 }
 
 impl ApiBase {
@@ -99,9 +139,13 @@ impl ApiBase {
 mod tests {
     use std::fs::File;
     use std::path::PathBuf;
-    use super::*;
+
     use anyhow::Error;
+    use serde_json::json;
+
     use crate::test_utils::parse_expression;
+
+    use super::*;
 
     #[test]
     fn test_bundle_transaction() -> Result<(), Error> {
@@ -121,5 +165,15 @@ mod tests {
         assert_eq!(1, results.len());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_operation_outcome_ser() {
+        let oo = OperationOutcome::new_error(IssueType::Processing, "resource not found");
+        let s = serde_json::to_string(&oo).unwrap();
+
+        let expected = json!({"issue":[{"code":"processing","diagnostics":"resource not found","severity":"error"}],"resourceType":"OperationOutcome","text":{"div":"<div xmlns=\"http://www.w3.org/1999/xhtml\"><h1>Operation Outcome</h1><span>resource not found</span></div>","status":"generated"}});
+        let actual: Value = serde_json::from_str(&s).unwrap();
+        assert!(expected.eq(&actual));
     }
 }

@@ -1,8 +1,9 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+
 use bson::document::ValueAccessError;
 use rawbson::RawError;
-
+use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -124,6 +125,32 @@ impl Display for ScanError {
         }
         Ok(())
     }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IssueSeverity {
+    Fatal,
+    Error,
+    Warning,
+    Information
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[allow(non_camel_case_types)]
+#[rustfmt::skip]
+pub enum IssueType {
+    Invalid,
+        Structure, Required, Value, Invariant,
+    Security,
+        Login, Unknown, Expired, Forbidden, Suppressed,
+    Processing,
+        Not_supported, Duplicate, Multiple_matches, Not_found, Deleted,
+        Too_long, Code_invalid, Extension, Too_costly, Business_rule, Conflict,
+    Transient,
+        Lock_error, No_store, Exception, Timeout, Incomplete, Throttled,
+    Informational
 }
 
 #[cfg(test)]
