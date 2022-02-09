@@ -22,6 +22,7 @@ use rawbson::elem::Element;
 use rocksdb::{DB, DBCompressionType, Env, Options, WriteBatch};
 use serde_json::Value;
 use thiserror::private::PathAsDisplay;
+use crate::api::bundle::SearchSet;
 
 use crate::errors::{EvalError, RaError};
 use crate::rapath::engine::eval;
@@ -151,10 +152,10 @@ impl Barn {
     // pub fn get(&self, id: u64, res_name: String) -> Result<Document, RaError> {
     // }
 
-    pub fn search<'a>(&self, res_def: &ResourceDef, filter: &'a Ast<'a>) -> Result<Vec<Document>, EvalError> {
-        let mut results = Vec::new();
+    pub fn search<'a>(&self, res_def: &ResourceDef, filter: &'a Ast<'a>) -> Result<SearchSet, EvalError> {
+        let mut results = SearchSet::new();
 
-        //let mut count = 0;
+        let mut count = 0;
         //let start = Instant::now();
         let prefix = &res_def.hash;
         let mut inner = self.db.prefix_iterator(prefix);
@@ -162,14 +163,14 @@ impl Barn {
             if !k.starts_with(prefix) {
                 break;
             }
-            //count += 1;
+            count += 1;
             let e = Element::new(ElementType::EmbeddedDocument, v.as_ref());
             let st = Rc::new(SystemType::Element(e));
             let pick = eval(&filter, st)?;
-            if pick.is_truthy() {
+            if pick.is_truthy() && count < 20 {
                 let de = BsonDeserializer::from_rawbson(e);
                 let val: Document = rawbson::de::from_doc(e.as_document().unwrap())?;
-                results.push(val);
+                results.add(val);
             }
         }
         //let elapsed = start.elapsed().as_secs();
@@ -215,7 +216,7 @@ mod tests {
         let results = barn.search(patient_schema, &filter)?;
         assert_eq!(1, results.len());
 
-        let mut fetched_data = results.into_iter().next().unwrap();
+        let mut fetched_data = results.entries.into_iter().next().unwrap().resource;
         fetched_data.remove("id");
         let fetched_data = DocBuf::from_document(&fetched_data);
         let fetched_data = Element::new(ElementType::EmbeddedDocument, fetched_data.as_bytes());

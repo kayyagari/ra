@@ -12,6 +12,8 @@ pub enum RaError {
     DbError(String),
     #[error("{0}")]
     BadRequest(String),
+    #[error("{0}")]
+    NotFound(String),
     // #[error("{0}")]
     // SystemError(String),
     #[error("{0}")]
@@ -55,6 +57,17 @@ pub struct EvalError {
 }
 
 impl Error for EvalError{}
+
+#[derive(Debug)]
+pub struct ScanError {
+    pub errors: Vec<String>
+}
+
+impl Error for ScanError {
+    fn description(&self) -> &str {
+        "filter parsing error"
+    }
+}
 
 impl Display for EvalError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -107,14 +120,21 @@ impl From<bson::ser::Error> for RaError {
     }
 }
 
-#[derive(Debug)]
-pub struct ScanError {
-    pub errors: Vec<String>
+impl From<ScanError> for RaError {
+    fn from(e: ScanError) -> Self {
+        RaError::bad_req(e.to_string())
+    }
 }
 
-impl Error for ScanError {
-    fn description(&self) -> &str {
-        "filter parsing error"
+impl From<ParseError> for RaError {
+    fn from(e: ParseError) -> Self {
+        RaError::bad_req(e.to_string())
+    }
+}
+
+impl From<EvalError> for RaError {
+    fn from(e: EvalError) -> Self {
+        RaError::bad_req(e.to_string())
     }
 }
 

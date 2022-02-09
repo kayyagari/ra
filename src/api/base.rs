@@ -1,16 +1,23 @@
+use std::fmt::format;
 use bson::Document;
 use log::debug;
 use rocksdb::WriteBatch;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use rocket::request::{FromRequest, Outcome};
+use std::convert::Infallible;
+use rocket::Request;
 
 use crate::api::bundle;
-use crate::api::bundle::{Method, RequestBundle};
+use crate::api::bundle::{BundleType, Method, RequestBundle, SearchSet};
 use crate::barn::Barn;
 use crate::errors::{EvalError, IssueSeverity, IssueType, RaError};
 use crate::rapath::expr::Ast;
+use crate::rapath::parser::parse;
+use crate::rapath::scanner::scan_tokens;
 use crate::res_schema::{parse_res_def, SchemaDef};
 use crate::ResourceDef;
+use crate::test_utils::parse_expression;
 
 pub struct ApiBase {
     db: Barn,
@@ -19,7 +26,12 @@ pub struct ApiBase {
 
 pub enum RaResponse {
     Success,
-    Created(Document)
+    Created(Document),
+    SearchResult(SearchSet)
+}
+
+pub struct ConditionalHeaders<'r> {
+    pub if_none_exist: Option<&'r str>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -53,6 +65,44 @@ enum NarrativeStatus {
     Empty
 }
 
+#[derive(Debug)]
+pub struct SearchQuery<'r> {
+    pub params: Vec<(&'r str, &'r str)>
+}
+
+
+#[derive(Debug)]
+pub enum ReturnContent {
+    Minimal,
+    Representation,
+    OperationOutcome
+}
+
+impl ReturnContent {
+    pub fn from<S: AsRef<str>>(s: S) -> Self {
+        match s.as_ref() {
+            "minimal" => ReturnContent::Minimal,
+            "representation" => ReturnContent::Representation,
+            "OperationOutcome" => ReturnContent::OperationOutcome,
+            _ => ReturnContent::Minimal
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ResponseHints {
+    pub rturn: ReturnContent,
+    pub pretty: bool,
+    pub summary: bool,
+    pub elements: bool,
+}
+
+impl ResponseHints {
+    pub fn default() -> Self {
+        ResponseHints{rturn: ReturnContent::Minimal, pretty: false, elements: false, summary: false}
+    }
+}
+
 impl OperationOutcome {
     pub fn new_error<S: AsRef<str>>(code: IssueType, msg: S) -> Self {
         let r = msg.as_ref();
@@ -71,11 +121,10 @@ impl ApiBase {
         Ok(ApiBase{db, schema})
     }
 
-    pub fn transaction(&self, val: Value) -> Result<RaResponse, RaError> {
+    fn transaction(&self, val: Value) -> Result<RaResponse, RaError> {
         debug!("validating the transaction bundle");
         self.schema.validate(&val)?;
         let req_bundle = RequestBundle::from(val)?;
-        // req_bundle.entries.
         debug!("processing transaction bundle");
         let mut wb = WriteBatch::default();
         for e in req_bundle.entries {
@@ -120,18 +169,53 @@ impl ApiBase {
         Ok(RaResponse::Created(doc))
     }
 
-    pub fn search(&self, rd: &ResourceDef, filter: &Ast) -> Result<Vec<Document>, EvalError> {
-        self.db.search(rd, filter)
+    pub fn bundle(&self, val: Value) -> Result<RaResponse, RaError> {
+        let btype = val.get("type");
+        if let None = btype {
+            return Err(RaError::bad_req("missing type property"));
+        }
+
+        let btype = btype.unwrap().as_str();
+        if let None = btype {
+            return Err(RaError::bad_req("missing value for type property"));
+        }
+
+        let btype = BundleType::from(btype.unwrap())?;
+
+        match btype {
+            BundleType::Transaction => self.transaction(val),
+            _ => {
+                return Err(RaError::bad_req(format!("unsupported bundle type {:?}", btype)));
+            }
+        }
+    }
+
+    pub fn search_query(&self, res_name: &str, query: &SearchQuery, hints: &ResponseHints) -> Result<RaResponse, RaError> {
+        let (key, val) = query.params[0];
+        debug!("parsing filter {}", val);
+        let tokens = scan_tokens(val)?;
+        let ast = parse(tokens)?;
+        let rd = self.get_res_def_by_name(res_name)?;
+        self.search(rd, &ast)
+    }
+
+    pub fn search(&self, rd: &ResourceDef, filter: &Ast) -> Result<RaResponse, RaError> {
+        let result = self.db.search(rd, filter)?;
+        Ok(RaResponse::SearchResult(result))
+    }
+
+    fn get_res_def_by_name(&self, name: &str) -> Result<&ResourceDef, RaError>{
+        let rd = self.schema.resources.get(name);
+        if let None = rd {
+            return Err(RaError::NotFound(format!("unknown resourceType {}", name)));
+        }
+
+        Ok(rd.unwrap())
     }
 
     fn get_res_def(&self, d: &Document) -> Result<&ResourceDef, RaError>{
         let res_type = d.get_str("resourceType")?;
-        let rd = self.schema.resources.get(res_type);
-        if let None = rd {
-            return Err(RaError::bad_req(format!("unknown resourceType {}", res_type)));
-        }
-
-        Ok(rd.unwrap())
+        self.get_res_def_by_name(res_type)
     }
 }
 
@@ -158,11 +242,16 @@ mod tests {
         let f = File::open("test_data/resources/bundle-example.json").unwrap();
         let val: Value = serde_json::from_reader(f).unwrap();
 
-        let resp = gateway.transaction(val)?;
+        let resp = gateway.bundle(val)?;
         let patient_schema = gateway.schema.resources.get("Practitioner").unwrap();
         let filter = parse_expression("name.where(family = 'Kuvalis369')");
         let results = gateway.search(patient_schema, &filter)?;
-        assert_eq!(1, results.len());
+        if let RaResponse::SearchResult(ss) = results {
+            assert_eq!(1, ss.entries.len());
+        }
+        else {
+            assert!(false, "expected a SearchSet");
+        }
 
         Ok(())
     }
@@ -177,3 +266,4 @@ mod tests {
         assert!(expected.eq(&actual));
     }
 }
+

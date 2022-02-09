@@ -37,7 +37,7 @@ async fn main() {
             log_mdc::insert("request_id", uuid::Uuid::new_v4().to_string());
         }
     )));
-    server.mount("/", routes![rest::create]).launch().await;
+    server.mount("/", routes![rest::create, rest::bundle, rest::search]).launch().await;
 
     // let sd = parse_res_def(&barn.read_schema()?).unwrap();
     // let patient_schema = sd.resources.get("Patient").unwrap();

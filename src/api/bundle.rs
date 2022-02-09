@@ -1,24 +1,27 @@
 use std::cmp::Ordering;
 use bson::{Document};
 use ksuid::Ksuid;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+use serde::ser::{SerializeMap, SerializeStruct};
 use serde_json::Value;
 
 use crate::errors::RaError;
 
 pub struct RequestBundle {
     pub btype: BundleType,
-    pub entries: Vec<Entry>
+    pub entries: Vec<RequestEntry>
+}
+
+pub struct SearchSet {
+    pub(crate) entries: Vec<SearchEntry>
+}
+
+pub struct SearchEntry {
+    pub resource: Document
 }
 
 #[derive(Serialize)]
-pub struct ResponseBundle {
-    #[serde(rename = "type")]
-    pub btype: BundleType,
-}
-
-#[derive(Serialize)]
-pub struct Entry {
+pub struct RequestEntry {
     pub req_method: Method,
     pub req_url: String,
     pub full_url: String,
@@ -87,6 +90,20 @@ impl BundleType {
     }
 }
 
+impl SearchSet {
+    pub fn new() -> Self {
+        Self{entries: Vec::new()}
+    }
+
+    pub fn add(&mut self, d: Document) {
+        self.entries.push(SearchEntry{resource: d});
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
 impl RequestBundle {
     pub fn from(mut val: Value) -> Result<RequestBundle, RaError> {
         let btype = val.get("type").unwrap().as_str().unwrap();
@@ -96,7 +113,7 @@ impl RequestBundle {
         let mut entries = entries.as_array_mut().unwrap();
         let ref_links = RequestBundle::gather_refs(entries)?;
 
-        let mut resources: Vec<Entry> = Vec::new();
+        let mut resources: Vec<RequestEntry> = Vec::new();
         for item in entries {
             let full_url = item.get("fullUrl").unwrap().as_str().unwrap();
             let full_url = String::from(full_url);
@@ -126,7 +143,7 @@ impl RequestBundle {
 
             let resource = bson::to_document(resource_val).unwrap();
 
-            let e = Entry { full_url, req_url, req_method, resource, ra_id };
+            let e = RequestEntry { full_url, req_url, req_method, resource, ra_id };
             resources.push(e);
         }
 
@@ -200,29 +217,51 @@ impl RequestBundle {
     }
 }
 
-impl Eq for Entry{}
-impl PartialEq for Entry{
+impl Eq for RequestEntry {}
+impl PartialEq for RequestEntry {
     fn eq(&self, other: &Self) -> bool {
         self.full_url.eq(&other.full_url)
     }
 }
 
-impl Ord for Entry{
+impl Ord for RequestEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         self.req_method.cmp(&other.req_method)
     }
 }
 
-impl PartialOrd for Entry {
+impl PartialOrd for RequestEntry {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         //Some(self.req_method.cmp(&other.req_method))
         Some(self.cmp(other))
     }
 }
 
+impl Serialize for SearchSet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_struct("", 4)?;
+        state.serialize_field("resourceType", "Bundle");
+        state.serialize_field("type", "searchset");
+        state.serialize_field("id", &uuid::Uuid::new_v4().to_string());
+
+        state.serialize_field("entries", &self.entries);
+        state.end()
+    }
+}
+
+impl Serialize for SearchEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_map(Some(2))?;
+        state.serialize_entry("fullUrl", self.resource.get_str("id").unwrap());
+        state.serialize_entry("resource", &self.resource);
+        state.end()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use bson::doc;
 
     use super::*;
 
@@ -234,6 +273,15 @@ mod tests {
         assert_eq!(BundleType::Transaction, bundle.btype);
         let s = serde_json::to_string(&bundle.entries).unwrap();
         println!("{}", s);
+        Ok(())
+    }
+
+    #[test]
+    fn test_serialize_searchset() -> Result<(), anyhow::Error> {
+        let mut ss = SearchSet::new();
+        ss.add(doc! {"id": "id", "k1": "v1"});
+        let val = serde_json::to_string(&ss)?;
+        assert!(val.len() > 0);
         Ok(())
     }
 }
