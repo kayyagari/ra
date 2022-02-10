@@ -32,7 +32,7 @@ async fn main() {
     let barn = Barn::open_with_default_schema(&path).unwrap();
     let api_base = ApiBase::new(barn).unwrap();
 
-    let start = true;//opts.is_present("start");
+    let start = opts.is_present("start");
     if start {
         let mut config = Config::default();
         config.address = Ipv4Addr::new(0,0,0,0).into();
