@@ -1,11 +1,11 @@
-#[macro_use] extern crate rocket;
-
 use std::fs::File;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::Instant;
 use bson::spec::BinarySubtype::Uuid;
+use clap::{Arg, ArgMatches};
 use ksuid::Ksuid;
+use log::{debug, info, warn};
 use rocket::{Config, routes};
 use rocket::fairing::AdHoc;
 use serde_json::Value;
@@ -22,64 +22,91 @@ use ra_registry::{configure_log4rs, validator};
 #[rocket::main]
 async fn main() {
     configure_log4rs();
-    let path = PathBuf::from("/tmp/testdb");
+
+    let opts = create_opts();
+
+    let dir = opts.value_of("dir").unwrap();
+    let path = PathBuf::from(dir);
+
     //std::fs::remove_dir_all(&path);
     let barn = Barn::open_with_default_schema(&path).unwrap();
     let api_base = ApiBase::new(barn).unwrap();
 
-    let mut config = Config::default();
-    config.address = Ipv4Addr::new(0,0,0,0).into();
-    config.port = 7090;
-    config.cli_colors = false;
+    let start = true;//opts.is_present("start");
+    if start {
+        let mut config = Config::default();
+        config.address = Ipv4Addr::new(0,0,0,0).into();
+        config.port = 7090;
+        config.cli_colors = false;
 
-    let mut server = rocket::build().manage(api_base).configure(config);
-    server = server.attach(AdHoc::on_request("Create trace ID", |req, _| Box::pin(async move {
+        let mut server = rocket::build().manage(api_base).configure(config);
+        server = server.attach(AdHoc::on_request("Create trace ID", |req, _| Box::pin(async move {
             log_mdc::insert("request_id", uuid::Uuid::new_v4().to_string());
         }
-    )));
-    server.mount("/", routes![rest::create, rest::bundle, rest::search]).launch().await;
+        )));
+        server.mount("/", routes![rest::create, rest::bundle, rest::search]).launch().await;
+    }
+    else if opts.is_present("import") {
+        let import = opts.value_of("import").unwrap();
+        debug!("importing from {}", import);
+        if !import.ends_with(".zip") {
+            info!("unsupported archive format, only ZIP files are supported");
+        }
+        else {
+            let archive = PathBuf::from(import);
 
-    // let sd = parse_res_def(&barn.read_schema()?).unwrap();
-    // let patient_schema = sd.resources.get("Patient").unwrap();
-    //
-    // let start = Instant::now();
-    // let count = load_patients(PathBuf::from("/Users/dbugger/Downloads/synthea-fhir-samples.zip"), patient_schema, &barn, &sd);
-    //
-    // let elapsed = start.elapsed().as_millis();
-    // println!("time took to insert {} records {}ms", count, elapsed);
-    //
-    // let tokens = scan_tokens("name.where(family = 'Delgado712')").unwrap();
-    // let filter = parse(tokens).unwrap();
-    // let start = Instant::now();
-    // let results = barn.search(patient_schema, &filter).unwrap();
-    // let elapsed = start.elapsed().as_millis();
-    // println!("search returned {} results in {}ms", results.len(), elapsed);
+            let start = Instant::now();
+            let count = load_data(archive, &api_base);
+            let elapsed = start.elapsed().as_millis();
+            println!("time took to insert {} records {}ms", count, elapsed);
+        }
+    }
 }
 
-fn load_patients(p: PathBuf, res_def: &ResourceDef, db: &Barn, sd: &SchemaDef) -> i32 {
-    if !p.ends_with(".zip") {
+fn create_opts() -> ArgMatches {
+    let matches = clap::App::new("ra")
+        .arg(Arg::new("dir")
+            .short('d')
+            .long("dir")
+            .help("path to the data directory")
+            .takes_value(true)
+            .default_value("/tmp/testdb"))
+        .arg(Arg::new("start")
+            .short('s')
+            .long("start")
+            .help("start the server")
+            .takes_value(false)
+            .conflicts_with("import"))
+        .arg(Arg::new("import")
+            .short('i')
+            .long("import")
+            .help("path to the archive(.zip) file to be imported")
+            .takes_value(true)
+            .required(false))
+        .get_matches();
+    matches
+}
 
-    }
-
-    let mut count = 0;
+fn load_data(p: PathBuf, gateway: &ApiBase) -> usize {
+    let mut count: usize = 0;
     let f = File::open(p.as_path()).expect("zip file is not readable");
     let mut archive = ZipArchive::new(f).expect("failed to open the zip file");
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).unwrap();
         if entry.is_file() {
             println!("reading entry {}", entry.name());
-            let val: Value = serde_json::from_reader(entry).unwrap();
-            let resources = val.get("entry").unwrap().as_array().unwrap();
-            for r in resources {
-                let rt = r.get("resource").unwrap();
-                if rt.get("resourceType").unwrap().as_str().unwrap() == "Patient" {
-                    //println!("inserting name.family {:?}", rt.pointer("/name[0]/family"));
-                    let data = bson::to_document(&rt).unwrap();
-                    //let mut data = data.as_document().unwrap().to_owned();
-                    db.insert(res_def, data, sd).unwrap();
-                    count += 1;
-                    break;
-                }
+            let val: serde_json::Result<Value> = serde_json::from_reader(entry);
+            if let Err(e) = val {
+                info!("failed to parse the file {}", e.to_string());
+                continue;
+            }
+            let val = val.unwrap();
+            let result = gateway.bundle(val);
+            if let Err(e) = result {
+                warn!("failed to process the bundle {:?}", e);
+            }
+            else {
+                count += 1;
             }
         }
     }

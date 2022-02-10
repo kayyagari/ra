@@ -156,25 +156,28 @@ impl Barn {
         let mut results = SearchSet::new();
 
         let mut count = 0;
-        //let start = Instant::now();
+        let mut total = 0;
+        let start = Instant::now();
         let prefix = &res_def.hash;
         let mut inner = self.db.prefix_iterator(prefix);
         for (k, v) in inner {
             if !k.starts_with(prefix) {
                 break;
             }
-            count += 1;
+
+            total += 1;
             let e = Element::new(ElementType::EmbeddedDocument, v.as_ref());
             let st = Rc::new(SystemType::Element(e));
             let pick = eval(&filter, st)?;
             if pick.is_truthy() && count < 20 {
+                count += 1;
                 let de = BsonDeserializer::from_rawbson(e);
                 let val: Document = rawbson::de::from_doc(e.as_document().unwrap())?;
                 results.add(val);
             }
         }
-        //let elapsed = start.elapsed().as_secs();
-        //println!("time took to search through {} records {}", count, elapsed);
+        let elapsed = start.elapsed().as_secs();
+        println!("searched through {} records {}", total, elapsed);
         Ok(results)
     }
 
