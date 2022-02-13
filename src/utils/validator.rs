@@ -26,7 +26,7 @@ mod tests {
     use jsonschema::JSONSchema;
     use serde_json::{json, Value};
     use std::fs::File;
-    use crate::validator::validate_resource;
+    use crate::utils::validator::validate_resource;
     use crate::res_schema::parse_res_def;
     //use crate::configure_log4rs;
 

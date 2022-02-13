@@ -540,7 +540,7 @@ mod tests {
     use rawbson::elem::Element;
     use serde_json::Value;
     use crate::rapath::stypes::SystemType;
-    use crate::test_utils::{read_patient, to_docbuf, update};
+    use crate::utils::test_utils::{read_patient, to_docbuf, update};
 
     #[test]
     fn test_equality() {

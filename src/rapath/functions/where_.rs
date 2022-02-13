@@ -104,7 +104,7 @@ mod tests {
     use crate::rapath::parser::parse;
     use crate::rapath::scanner::scan_tokens;
     use crate::rapath::stypes::{SystemType, SystemTypeType};
-    use crate::test_utils::{read_patient, to_docbuf};
+    use crate::utils::test_utils::{read_patient, to_docbuf};
 
     #[test]
     fn test_where() {

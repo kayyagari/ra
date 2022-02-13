@@ -17,7 +17,7 @@ use ra_registry::rapath::parser::parse;
 use ra_registry::rapath::scanner::scan_tokens;
 use ra_registry::res_schema::{parse_res_def, ResourceDef, SchemaDef};
 
-use ra_registry::{configure_log4rs, validator};
+use ra_registry::configure_log4rs;
 
 #[rocket::main]
 async fn main() {

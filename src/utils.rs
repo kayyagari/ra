@@ -1,5 +1,10 @@
 use crc32fast::Hasher;
 
+pub mod test_utils;
+pub mod bson_utils;
+pub mod resources;
+pub mod validator;
+
 pub fn u32_from_le_bytes(b: &[u8]) -> u32 {
     let mut d : u32 = 0;
     for i in 0..4 {

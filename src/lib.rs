@@ -7,7 +7,6 @@ use crate::res_schema::ResourceDef;
 use log4rs::encode::pattern::PatternEncoder;
 use thiserror::Error;
 
-pub mod validator;
 pub mod res_schema;
 mod context;
 pub mod errors;
@@ -18,11 +17,8 @@ mod filter_parser;
 mod dtypes;
 mod search;
 pub mod rapath;
-mod test_utils;
 pub mod importer;
-mod resources;
 pub mod api;
-mod bson_utils;
 
 pub fn configure_log4rs() {
     let stdout = ConsoleAppender::builder()

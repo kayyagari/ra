@@ -80,7 +80,7 @@ mod tests {
     fn test_get() {
 
         let t = "2022-02-06T11:45:00Z".parse::<DateTime<Utc>>().unwrap();
-        let doc = bson!({"id": "abcd", "meta": { "versionId": 1, "lastUpdated": t.clone()}});
+        let doc = bson!({"id": "abcd", "meta": { "versionId": 1, "lastUpdated": t.format(DATE_FORMAT).to_string()}});
         let doc = doc.as_document().unwrap();
         assert_eq!("abcd", get_str(doc, "id"));
         assert_eq!(1, get_int(doc, "meta.versionId"));

@@ -29,7 +29,7 @@ use crate::rapath::engine::eval;
 use crate::rapath::expr::Ast;
 use crate::rapath::stypes::SystemType;
 use crate::res_schema::{parse_res_def, ResourceDef, SchemaDef};
-use crate::resources::{get_default_schema_bytes, parse_compressed_json};
+use crate::utils::resources::{get_default_schema_bytes, parse_compressed_json};
 use crate::utils;
 use crate::utils::{get_crc_hash, prefix_id};
 
@@ -193,7 +193,7 @@ mod tests {
     use std::fs::File;
 
     use crate::res_schema::parse_res_def;
-    use crate::test_utils::{parse_expression, read_patient, to_docbuf};
+    use crate::utils::test_utils::{parse_expression, read_patient, to_docbuf};
 
     use super::*;
 

@@ -15,7 +15,7 @@ use rocket::serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::base::{ApiBase, ConditionalHeaders, OperationOutcome, RaResponse, ResponseHints, ReturnContent, SearchQuery};
-use crate::bson_utils;
+use crate::utils::bson_utils;
 use crate::errors::{IssueType, RaError};
 
 const FHIR_JSON: &'static str = "application/fhir+json";

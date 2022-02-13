@@ -7,7 +7,8 @@ use rocksdb::WriteBatch;
 use crate::barn::Barn;
 use crate::errors::RaError;
 use crate::res_schema::SchemaDef;
-use crate::{bson_utils, ResourceDef};
+use crate::ResourceDef;
+use crate::utils::bson_utils;
 
 impl Barn {
     pub fn insert_batch(&self, ksid: &Ksuid, res_def: &ResourceDef, mut data: Document, wb: &mut WriteBatch, sd: &SchemaDef) -> Result<Document, RaError> {
