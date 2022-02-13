@@ -9,18 +9,29 @@ use crate::rapath::functions::where_::{where_};
 use crate::rapath::scanner::{Token, TokenAndPos};
 use crate::rapath::scanner::Token::*;
 use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
+use crate::res_schema::SchemaDef;
 
-struct Parser {
-    tokens: VecDeque<TokenAndPos>
+struct Parser<'b> {
+    tokens: VecDeque<TokenAndPos>,
+    sd: Option<&'b SchemaDef>,
+    // a dequeue that holds true if the current token is DOT and false otherwise for each token
+    // this is to assist in stripping the resource name from the expressions
+    prev: VecDeque<bool>
 }
 
 pub fn parse<'a>(mut tokens: VecDeque<TokenAndPos>) -> Result<Ast<'a>, ParseError> {
-    let mut p = Parser{ tokens };
+    let mut p = Parser{ tokens, sd: None, prev: VecDeque::new() };
 
     p.parse()
 }
 
-impl<'a> Parser {
+pub fn parse_with_schema(mut tokens: VecDeque<TokenAndPos>, sd: Option<&SchemaDef>) -> Result<Ast, ParseError> {
+    let mut p = Parser{ tokens, sd, prev: VecDeque::new() };
+
+    p.parse()
+}
+
+impl<'a> Parser<'a> {
     fn parse(&mut self) -> Result<Ast<'a>, ParseError> {
         let e = self.expression(0)?;
         if self.peek().0 != EOF {
@@ -55,6 +66,14 @@ impl<'a> Parser {
                 Ok(Ast::Literal {val: Rc::new(SystemType::String(SystemString::new(s)))})
             },
             IDENTIFIER(id) => {
+                if !self.is_prev_dot() {
+                    if self.is_resource_name(&id) {
+                        if self.peek().0 == DOT {
+                            self.advance();
+                        }
+                        return self.null_denotation();
+                    }
+                }
                 Ok(Ast::Path {name: id})
             },
             CONSTANT(c) => {
@@ -241,10 +260,30 @@ impl<'a> Parser {
     #[inline]
     fn advance(&mut self) -> (Token, usize) {
         if let Some(t) = self.tokens.pop_front() {
+            self.prev.push_front(t.0 == DOT);
             return t;
         }
 
+        self.prev.push_front(false);
         (Token::EOF, 1)
+    }
+
+    #[inline]
+    fn is_resource_name(&self, id: &String) -> bool {
+        let mut found = false;
+        if let Some(sd) = self.sd {
+            found = sd.resources.contains_key(id);
+        }
+        found
+    }
+
+    #[inline]
+    fn is_prev_dot(&self) -> bool {
+        let mut dot = false;
+        if let Some(t) = self.prev.get(1) {
+            dot = *t;
+        }
+        dot
     }
 }
 
