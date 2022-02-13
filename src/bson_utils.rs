@@ -1,6 +1,8 @@
 use bson::{Bson, Document};
 use chrono::{DateTime, Utc};
-use crate::errors::RaError;
+use chrono::prelude::*;
+
+pub const DATE_FORMAT: &'static str = "%Y-%m-%dT%H:%M:%S%.3fZ";
 
 pub fn get_str<'a>(doc: &'a Document, path: &str) -> &'a str {
     let o = get(doc, path);
@@ -14,12 +16,15 @@ pub fn get_str<'a>(doc: &'a Document, path: &str) -> &'a str {
     ""
 }
 
-pub fn get_time<'a>(doc: &'a Document, path: &str) -> Option<&'a DateTime<Utc>> {
+pub fn get_time(doc: &Document, path: &str) -> Option<DateTime<Utc>> {
     let o = get(doc, path);
     if let Some(o) = o {
-        let val = o.as_datetime();
+        let val = o.as_str();
         if let Some(val) = val {
-            return Some(val);
+            let val = Utc.datetime_from_str(val, DATE_FORMAT);
+            if let Ok(val) = val {
+                return Some(val);
+            }
         }
     }
 
@@ -67,6 +72,8 @@ fn find_key<'a>(o: Option<&'a Bson>, k: &str) -> Option<&'a Bson> {
 #[cfg(test)]
 mod tests {
     use bson::bson;
+    use serde_json::Value;
+
     use super::*;
 
     #[test]

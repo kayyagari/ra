@@ -1,6 +1,6 @@
 use std::fmt::format;
 use bson::Document;
-use log::debug;
+use log::{debug, warn};
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -71,7 +71,7 @@ pub struct SearchQuery<'r> {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ReturnContent {
     Minimal,
     Representation,
@@ -81,9 +81,10 @@ pub enum ReturnContent {
 impl ReturnContent {
     pub fn from<S: AsRef<str>>(s: S) -> Self {
         match s.as_ref() {
-            "minimal" => ReturnContent::Minimal,
-            "representation" => ReturnContent::Representation,
-            "OperationOutcome" => ReturnContent::OperationOutcome,
+            // using 'return=' prefix to avoid a call to sub-string on the header value
+            "return=minimal" => ReturnContent::Minimal,
+            "return=representation" => ReturnContent::Representation,
+            "return=OperationOutcome" => ReturnContent::OperationOutcome,
             _ => ReturnContent::Minimal
         }
     }
@@ -111,6 +112,16 @@ impl OperationOutcome {
         let i1 = BackboneElement{severity: IssueSeverity::Error, code, diagnostics: r.to_string()};
         let issue = vec![Box::new(i1)];
         OperationOutcome{issue, text, rtype: "OperationOutcome"}
+    }
+
+    pub fn serialize(&self) -> String {
+        let r = serde_json::to_string(self);
+        if let Err(e) = r {
+            let msg = "failed to serialize the OperationOutcome";
+            warn!("{}", msg);
+            return String::from(msg);
+        }
+        r.unwrap()
     }
 }
 
@@ -234,7 +245,6 @@ mod tests {
     #[test]
     fn test_bundle_transaction() -> Result<(), Error> {
         let path = PathBuf::from("/tmp/testdb");
-        std::fs::remove_dir_all(&path);
         let barn = Barn::open_with_default_schema(&path)?;
 
         let gateway = ApiBase::new(barn)?;
@@ -253,13 +263,14 @@ mod tests {
             assert!(false, "expected a SearchSet");
         }
 
+        std::fs::remove_dir_all(&path);
         Ok(())
     }
 
     #[test]
     fn test_operation_outcome_ser() {
         let oo = OperationOutcome::new_error(IssueType::Processing, "resource not found");
-        let s = serde_json::to_string(&oo).unwrap();
+        let s = oo.serialize();
 
         let expected = json!({"issue":[{"code":"processing","diagnostics":"resource not found","severity":"error"}],"resourceType":"OperationOutcome","text":{"div":"<div xmlns=\"http://www.w3.org/1999/xhtml\"><h1>Operation Outcome</h1><span>resource not found</span></div>","status":"generated"}});
         let actual: Value = serde_json::from_str(&s).unwrap();

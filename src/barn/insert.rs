@@ -7,7 +7,7 @@ use rocksdb::WriteBatch;
 use crate::barn::Barn;
 use crate::errors::RaError;
 use crate::res_schema::SchemaDef;
-use crate::ResourceDef;
+use crate::{bson_utils, ResourceDef};
 
 impl Barn {
     pub fn insert_batch(&self, ksid: &Ksuid, res_def: &ResourceDef, mut data: Document, wb: &mut WriteBatch, sd: &SchemaDef) -> Result<Document, RaError> {
@@ -29,7 +29,9 @@ impl Barn {
         // }
         let mut meta = meta.unwrap().as_document_mut().unwrap();
         meta.insert("versionId", Bson::from(1));
-        meta.insert("lastUpdated", Bson::from(Utc::now()));
+        // this has to be inserted as a string otherwise when serialized to JSON
+        // dates are formatted in extended-JSON format
+        meta.insert("lastUpdated", Bson::from(Utc::now().format(bson_utils::DATE_FORMAT).to_string()));
 
         // TODO move this block to update and replace calls
         // check version history

@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::io::{BufWriter, Cursor, Sink};
+use chrono::Utc;
 use log::debug;
 
 use rocket::{Config, Data, get, post, Request, Response, State};
@@ -13,11 +14,12 @@ use rocket::response::Responder;
 use rocket::serde::Deserialize;
 use serde_json::Value;
 
-use crate::api::base::{ApiBase, ConditionalHeaders, RaResponse, ResponseHints, ReturnContent, SearchQuery};
+use crate::api::base::{ApiBase, ConditionalHeaders, OperationOutcome, RaResponse, ResponseHints, ReturnContent, SearchQuery};
 use crate::bson_utils;
-use crate::errors::RaError;
+use crate::errors::{IssueType, RaError};
 
 const FHIR_JSON: &'static str = "application/fhir+json";
+const DATE_HEADER_FORMAT: &'static str = "%a, %d %m %Y %H:%M:%S GMT";
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for SearchQuery<'r> {
@@ -52,9 +54,6 @@ impl<'r> FromRequest<'r> for &'r ResponseHints {
             let mut summary = false;
             for item in request.query_fields() {
                 match item.name.as_name().as_str() {
-                    "return" => {
-                        rturn = ReturnContent::from(item.value);
-                    },
                     "_pretty" => {
                         let tmp = item.value.parse::<bool>();
                         if let Ok(b) = tmp {
@@ -78,6 +77,14 @@ impl<'r> FromRequest<'r> for &'r ResponseHints {
                     }
                 }
             }
+
+            for item in request.headers().get("Prefer") {
+                if item.starts_with("return=") {
+                    rturn = ReturnContent::from(item);
+                    break;
+                }
+            }
+
             ResponseHints{rturn, pretty, elements, summary}
         };
 
@@ -99,33 +106,35 @@ impl<'r> FromRequest<'r> for ConditionalHeaders<'r> {
 #[rocket::async_trait]
 impl<'r, 'o: 'r> Responder<'r, 'o> for RaError {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'o> {
+        let now = Utc::now().format(DATE_HEADER_FORMAT).to_string();
+        let status: Status;
+        let oo: OperationOutcome;
+
         match self {
             RaError::DbError(s) | RaError::SchemaParsingError(s) => {
-                Response::build()
-                    .sized_body(s.len(), Cursor::new(s))
-                    .status(Status::InternalServerError)
-                    .ok()
+                oo = OperationOutcome::new_error(IssueType::Exception, s);
+                status = Status::InternalServerError;
             },
             RaError::SchemaValidationError => {
-                let msg = "schema validation failed";
-                Response::build()
-                    .sized_body(msg.len(), Cursor::new(msg))
-                    .status(Status::InternalServerError)
-                    .ok()
+                oo = OperationOutcome::new_error(IssueType::Processing, "schema validation failed");
+                status = Status::InternalServerError;
             },
             RaError::BadRequest(s) => {
-                Response::build()
-                    .sized_body(s.len(), Cursor::new(s))
-                    .status(Status::BadRequest)
-                    .ok()
+                oo = OperationOutcome::new_error(IssueType::Processing, s);
+                status = Status::BadRequest;
             },
             RaError::NotFound(s) => {
-                Response::build()
-                    .sized_body(s.len(), Cursor::new(s))
-                    .status(Status::NotFound)
-                    .ok()
+                oo = OperationOutcome::new_error(IssueType::Not_found, s);
+                status = Status::NotFound;
             }
         }
+
+        let mut resp = Response::build_from(Response::new());
+        resp.raw_header("Date", now);
+        let s = oo.serialize();
+        resp.sized_body(s.len(), Cursor::new(s))
+            .status(status)
+            .ok()
     }
 }
 
@@ -133,6 +142,10 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaResponse {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'o> {
         let hints: &ResponseHints = request.local_cache(|| {ResponseHints::default()});
         debug!("{:?}", hints);
+
+        let now = Utc::now().format(DATE_HEADER_FORMAT).to_string();
+        let mut resp = Response::build_from(Response::new());
+        resp.raw_header("Date", now);
 
         match self {
             RaResponse::Created(doc) => {
@@ -145,24 +158,33 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaResponse {
 
                 let last_modified = bson_utils::get_time(&doc, "meta.lastUpdated").unwrap();
                 //Last-Modified: <day-name>, <day> <month> <year> <hour>:<minute>:<second> GMT
-                let last_modified = last_modified.format("%a, %d %m %Y %H:%M:%S GMT").to_string();
+                let last_modified = last_modified.format(DATE_HEADER_FORMAT).to_string();
 
-                Response::build()
-                    .status(Status::Created)
+                resp.status(Status::Created)
                     .raw_header("Location", loc)
                     .raw_header("Etag", vid.to_string())
-                    .raw_header("Last-Modified", last_modified)
-                    .ok()
+                    .raw_header("Last-Modified", last_modified);
+
+                if hints.rturn == ReturnContent::Representation {
+                    let buf;
+                    if hints.pretty {
+                        buf = serde_json::to_vec_pretty(&doc).unwrap();
+                    }
+                    else {
+                        buf = serde_json::to_vec(&doc).unwrap();
+                    }
+                    resp.sized_body(buf.len(), Cursor::new(buf));
+                }
+
+                resp.ok()
             },
             RaResponse::Success => {
-                Response::build()
-                    .status(Status::Ok)
+                resp.status(Status::Ok)
                     .ok()
             },
             RaResponse::SearchResult(ss) => {
                 let buf = serde_json::to_vec(&ss).unwrap();
-                Response::build()
-                    .status(Status::Ok)
+                resp.status(Status::Ok)
                     .raw_header("Content-Type", FHIR_JSON)
                     .sized_body(buf.len(), Cursor::new(buf))
                     .ok()

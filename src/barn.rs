@@ -199,8 +199,7 @@ mod tests {
 
     #[test]
     fn test_search() -> Result<(), anyhow::Error> {
-        let path = PathBuf::from("/tmp/testdb");
-        std::fs::remove_dir_all(&path);
+        let path = PathBuf::from("/tmp/testdb1");
         let barn = Barn::open_with_default_schema(&path)?;
         let sd = parse_res_def(&barn.read_schema()?)?;
         let patient_schema = sd.resources.get("Patient").unwrap();
@@ -226,6 +225,7 @@ mod tests {
 
         assert_eq!(SystemType::Element(inserted_data), SystemType::Element(fetched_data));
 
+        std::fs::remove_dir_all(&path);
         Ok(())
     }
 }

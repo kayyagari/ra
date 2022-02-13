@@ -10,7 +10,7 @@ use thiserror::Error;
 pub mod validator;
 pub mod res_schema;
 mod context;
-mod errors;
+pub mod errors;
 pub mod barn;
 mod utils;
 mod filter_scanner;
