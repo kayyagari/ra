@@ -30,3 +30,5 @@ rocket = {version = "0.5.0-rc.1", features = ["json"]}
 bzip2-rs = "0.1.2"
 uuid = {version = "0.8.2", features = ["v4"]}
 clap = "3.0.14"
+rayon = "1.5.1"
+#unicase = "2.6.0"
