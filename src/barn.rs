@@ -10,9 +10,9 @@ use std::rc::Rc;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use bson::{Bson, Document};
+use bson::{Bson, bson, Document};
 use rawbson::elem::ElementType;
-use chrono::{DateTime, NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use ksuid::Ksuid;
 use lazy_static::lazy_static;
 use log::{debug, error, info, trace, warn};
@@ -29,9 +29,9 @@ use crate::rapath::engine::eval;
 use crate::rapath::expr::Ast;
 use crate::rapath::stypes::SystemType;
 use crate::res_schema::{parse_res_def, ResourceDef, SchemaDef};
-use crate::utils::resources::{get_default_schema_bytes, parse_compressed_json};
+use crate::utils::resources::{get_default_schema_bytes, get_default_search_param_bytes, parse_compressed_json};
 use crate::utils;
-use crate::utils::{get_crc_hash, prefix_id};
+use crate::utils::{bson_utils, get_crc_hash, prefix_id};
 
 mod insert;
 
@@ -43,6 +43,8 @@ lazy_static! {
         let prefix = get_crc_hash(RA_METADATA_KEY_PREFIX);
         prefix_id(&prefix, schema_id.as_bytes())
     };
+
+ static ref SEARCH_PARAM_RESOURCE_KEY_PREFIX: [u8; 4] = get_crc_hash("SearchParameter");
 }
 
 pub struct Barn {
@@ -60,6 +62,7 @@ impl Barn {
     pub fn open_with_default_schema(db_path: &PathBuf) -> Result<Barn, RaError> {
         let b = Barn::open(db_path)?;
         b.store_schema(get_default_schema_bytes())?;
+        b.store_default_search_params()?;
         Ok(b)
     }
 
@@ -103,12 +106,41 @@ impl Barn {
     }
 
     pub fn store_schema(&self, data: &[u8]) -> Result<(), RaError> {
-        info!("storing schema");
-        let result = self.db.put(&*SCHEMA_ID, data);
-        if let Err(e) = result {
-            let msg = format!("failed to store schema in database {}", e);
-            warn!("{}", &msg);
-            return Err(RaError::DbError(msg));
+        let s_val = self.db.get(&*SCHEMA_ID)?;
+        if s_val.is_none() {
+            info!("storing default bundled schema");
+            let result = self.db.put(&*SCHEMA_ID, data);
+            if let Err(e) = result {
+                let msg = format!("failed to store schema in database {}", e);
+                warn!("{}", &msg);
+                return Err(RaError::DbError(msg));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn store_default_search_params(&self) -> Result<(), RaError> {
+        let prefix = &*SEARCH_PARAM_RESOURCE_KEY_PREFIX;
+        let mut itr = self.db.prefix_iterator(prefix);
+        if itr.next().is_none() {
+            info!("storing default search parameter resources");
+            let data = get_default_search_param_bytes();
+            let params = parse_compressed_json(data)?;
+            let params = params.get("entry").unwrap().as_array().unwrap();
+            let mut wb = WriteBatch::default();
+            for p in params {
+                let p = p.get("resource").unwrap();
+                let doc = bson::to_document(p)?;
+                let _ = self.insert_search_param_batch(prefix, doc, &mut wb)?;
+            }
+
+            let result = self.db.write(wb);
+            if let Err(e) = result {
+                let msg = format!("unable to insert default search parameter resources {}", e);
+                warn!("{}", &msg);
+                return Err(RaError::DbError(msg));
+            }
         }
 
         Ok(())
@@ -185,6 +217,32 @@ impl Barn {
         debug!("saving batch");
         self.db.write(wb)?;
         Ok(())
+    }
+
+    fn insert_search_param_batch(&self, prefix: &[u8; 4], mut data: Document, wb: &mut WriteBatch) -> Result<Document, RaError> {
+        let res_id = Ksuid::generate();
+        data.insert("id", Bson::from(res_id.to_base62()));
+
+        // update metadata
+        let mut meta = data.get_mut("meta");
+        if let None = meta {
+            data.insert("meta", bson!({}));
+            meta = data.get_mut("meta");
+        }
+
+        let mut meta = meta.unwrap().as_document_mut().unwrap();
+        meta.insert("versionId", Bson::from(1));
+        // this has to be inserted as a string otherwise when serialized to JSON
+        // dates are formatted in extended-JSON format
+        meta.insert("lastUpdated", Bson::from(Utc::now().format(bson_utils::DATE_FORMAT).to_string()));
+
+        let mut vec_bytes = Vec::new();
+        data.to_writer(&mut vec_bytes);
+
+        let pk = prefix_id(prefix, res_id.as_bytes());
+        wb.put(&pk, vec_bytes.as_slice());
+
+        Ok(data)
     }
 }
 
