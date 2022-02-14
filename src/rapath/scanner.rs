@@ -380,15 +380,23 @@ impl Scanner<'_> {
                     if c == '\'' && prev != '\\' {
                         break;
                     }
-                    match c {
-                        '\\' => {
-                            if prev == '\\' {
+                    if prev == '\\' {
+                        s.pop(); // remove the \
+                        match c {
+                            'r' => s.push('\r'),
+                            'n' => s.push('\n'),
+                            't' => s.push('\t'),
+                            'f' => s.push_str("\\f"),
+                            'u' | 'U' => {
+                                s.push(c);
+                            },
+                            _ => {
                                 s.push(c);
                             }
                         }
-                        _ => {
-                            s.push(c);
-                        }
+                    }
+                    else {
+                        s.push(c);
                     }
                     prev = c;
                 },
@@ -482,8 +490,9 @@ impl Scanner<'_> {
 #[cfg(test)]
 mod tests {
     use std::process::Command;
+    use anyhow::Error;
 
-    use crate::rapath::scanner::scan_tokens;
+    use crate::rapath::scanner::{scan_tokens, Token};
 
     struct FilterCandidate<'a> {
         filter: &'a str,
@@ -545,5 +554,28 @@ mod tests {
             }
             assert!(true);
         }
+    }
+
+    #[test]
+    fn test_string_escape() -> Result<(), Error>{
+        let mut candidates: Vec<(&str, &str)> = Vec::new();
+        candidates.push(("'it\\'s me'", "it's me"));
+        candidates.push(("'it\\\"s me'", "it\"s me"));
+        candidates.push(("'it\\`s me'", "it`s me"));
+        candidates.push(("'it\\rs me'", "it\rs me"));
+        candidates.push(("'look \\U+092E, this is unicode'", "look U+092E, this is unicode"));
+        candidates.push(("'this char \\C is an non-escape char'", "this char C is an non-escape char"));
+        candidates.push(("'linefeed char \\f is treated differently'", "linefeed char \\f is treated differently"));
+        for (input, expected) in candidates {
+            let r = scan_tokens(input)?.pop_front().unwrap();
+            if let Token::STRING(actual) = r.0 {
+                assert_eq!(expected, actual);
+            }
+            else {
+                assert!(false, format!("unexpected token received {}", r.0));
+            }
+        }
+
+        Ok(())
     }
 }
