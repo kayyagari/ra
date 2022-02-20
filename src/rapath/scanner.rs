@@ -83,7 +83,7 @@ pub enum Token {
     UNION,
 
     IDENTIFIER(String),
-    STRING(String), NUMBER(String), DATE(DateTime<Utc>), TIME(NaiveTime),
+    STRING(String), NUMBER(String), DATE_TIME(DateTime<Utc>), TIME(NaiveTime),
 
     DIV, MOD, TRUE, FALSE,
     IS, AS, IN, CONTAINS, AND, OR, XOR, IMPLIES,
@@ -137,7 +137,7 @@ impl Display for Token {
         if let TIME(t) = self {
             return f.write_str(t.format(TIME_FORMAT).to_string().as_str());
         }
-        else if let DATE(d) = self {
+        else if let DATE_TIME(d) = self {
             return f.write_str(d.format(DATETIME_FORMAT).to_string().as_str());
         }
 
@@ -636,7 +636,7 @@ impl Scanner<'_> {
         }
 
         let dt = dt.unwrap().with_timezone(&Utc);
-        Ok(DATE(dt))
+        Ok(DATE_TIME(dt))
     }
 
     #[inline]
@@ -891,7 +891,7 @@ mod tests {
 
         for (input, expected) in candidates {
             let r = scan_tokens(input).unwrap().pop_front().unwrap();
-            if let Token::DATE(ref actual) = r.0 {
+            if let Token::DATE_TIME(ref actual) = r.0 {
                 assert_eq!(expected, actual);
             }
             else {
