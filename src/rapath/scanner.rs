@@ -82,7 +82,7 @@ pub enum Token {
     LESS, LESS_EQUAL,
     UNION,
 
-    IDENTIFIER(String),
+    IDENTIFIER(String), QUANTITY(f64, String),
     STRING(String), NUMBER(String), DATE_TIME(DateTime<Utc>), TIME(NaiveTime),
 
     DIV, MOD, TRUE, FALSE,
@@ -323,7 +323,25 @@ impl Scanner<'_> {
                     '\'' => {
                         let t = self.read_string(pos);
                         if let Some(s) = t {
-                            tokens.push_back((s, pos));
+                            let prev = tokens.pop_back();
+                            if let Some(prev) = prev {
+                                if let NUMBER(n) = prev.0 {
+                                    let float = n.parse::<f64>();
+                                    if let Err(e) = float {
+                                        self.errors.push(format!("invalid value given for quantity '{}' starting at position {}", n, pos));
+                                    }
+                                    else {
+                                        tokens.push_back((QUANTITY(float.unwrap(), s), pos));
+                                    }
+                                }
+                                else {
+                                    tokens.push_back(prev);
+                                    tokens.push_back((STRING(s), pos));
+                                }
+                            }
+                            else {
+                                tokens.push_back((STRING(s), pos));
+                            }
                         }
                     },
                     '%' => {
@@ -422,7 +440,7 @@ impl Scanner<'_> {
         id
     }
 
-    fn read_string(&mut self, start: usize) -> Option<Token> {
+    fn read_string(&mut self, start: usize) -> Option<String> {
         let mut prev: char = '\'';
         let mut s = String::new();
         loop {
@@ -458,7 +476,7 @@ impl Scanner<'_> {
             }
         }
 
-        Option::Some(STRING(s))
+        Option::Some(s)
     }
 
     fn read_multiline_comment(&mut self, start: usize) {
@@ -907,6 +925,33 @@ mod tests {
             let r = scan_tokens(input);
             assert!(r.is_err());
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_quantity() -> Result<(), Error> {
+        let mut candidates: Vec<(&str, f64, &str)> = Vec::new();
+        candidates.push(("4.5 'mg'", 4.5, "mg"));
+        candidates.push(("1 'year'", 1.0, "year"));
+        candidates.push(("1.001 'g'", 1.001, "g"));
+        for (input, expected_val, expected_code) in candidates {
+            let r = scan_tokens(input).unwrap().pop_front().unwrap();
+            if let QUANTITY(actual_val, actual_code) = r.0 {
+                assert_eq!(expected_val, actual_val);
+                assert_eq!(expected_code, actual_code.as_str());
+            }
+            else {
+                assert!(false, format!("unexpected token received {}", r.0));
+            }
+        }
+
+        // let mut err_candidates = Vec::new();
+        // err_candidates.push("1.a 'g'");
+        // for input in err_candidates {
+        //     let r = scan_tokens(input);
+        //     assert!(r.is_err());
+        // }
 
         Ok(())
     }
