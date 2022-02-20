@@ -116,7 +116,7 @@ DATEFORMAT
         ;
 
 TIMEFORMAT
-        =  DIGIT DIGIT [("=" DIGIT DIGIT [("=" DIGIT DIGIT [("." 1*DIGIT)])])]
+        =  DIGIT DIGIT [(":" DIGIT DIGIT [(":" DIGIT DIGIT [("." 1*DIGIT)])])]
         ;
 
 TIMEZONEOFFSETFORMAT

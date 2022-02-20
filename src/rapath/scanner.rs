@@ -1,14 +1,21 @@
 use std::collections::{HashMap, VecDeque};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use thiserror::Error;
+use std::fmt::{Display, Formatter, Write};
 use std::iter::Peekable;
 use std::str::CharIndices;
+use chrono::prelude::*;
+use chrono::format::Fixed::TimezoneOffset;
+use chrono::format::Parsed;
 
 use lazy_static::lazy_static;
+use regex::Regex;
 
 use crate::errors::ScanError;
 
 use self::Token::*;
+
+const TIME_FORMAT: &'static str = "@T%H:%M:%S%.3f";
+const DATETIME_FORMAT: &'static str = "@%Y-%m-%dT%H:%M:%S%.3fZ";
 
 lazy_static! {
  pub static ref KEYWORDS: HashMap<&'static str, Token> = {
@@ -47,6 +54,10 @@ lazy_static! {
         words.insert("years", Token::YEARS);
         words
     };
+
+    static ref TIME_RE: Regex = Regex::new(r"^(\d{2}(:\d{2}(:\d{2}(\.\d{3})?)?)?)$").unwrap();
+    static ref DATE_RE: Regex = Regex::new(r"^(\d{4}(-\d{2}(-\d{2})?)?)$").unwrap();
+    static ref TZ_RE: Regex = Regex::new(r"^(z|Z|(\+|-)\d{2}:\d{2})$").unwrap();
 }
 
 #[derive(Debug)]
@@ -72,7 +83,7 @@ pub enum Token {
     UNION,
 
     IDENTIFIER(String),
-    STRING(String), NUMBER(String), DATE(String), TIME(String),
+    STRING(String), NUMBER(String), DATE(DateTime<Utc>), TIME(NaiveTime),
 
     DIV, MOD, TRUE, FALSE,
     IS, AS, IN, CONTAINS, AND, OR, XOR, IMPLIES,
@@ -87,6 +98,23 @@ pub enum Token {
 }
 
 pub type TokenAndPos = (Token, usize);
+
+#[derive(Debug, Error)]
+struct DateTimeParseError {
+    msg: String
+}
+
+impl DateTimeParseError {
+    fn new<S: AsRef<str>>(msg: S) -> Self {
+        Self{msg: String::from(msg.as_ref())}
+    }
+}
+
+impl Display for DateTimeParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
 
 pub fn scan_tokens(filter: &str) -> Result<VecDeque<TokenAndPos>, ScanError> {
     let chars = filter.char_indices().peekable();
@@ -106,6 +134,13 @@ pub fn scan_tokens(filter: &str) -> Result<VecDeque<TokenAndPos>, ScanError> {
 
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if let TIME(t) = self {
+            return f.write_str(t.format(TIME_FORMAT).to_string().as_str());
+        }
+        else if let DATE(d) = self {
+            return f.write_str(d.format(DATETIME_FORMAT).to_string().as_str());
+        }
+
         let s=
         match self {
             IDENTIFIER(id) => id.as_str(),
@@ -135,8 +170,6 @@ impl Display for Token {
             UNION => "|",
             STRING(v) => v.as_str(),
             NUMBER(n) => n.as_str(),
-            DATE(d) => d.as_str(),
-            TIME(t) => t.as_str(),
             DIV => "div",
             MOD => "mod",
             TRUE => "true",
@@ -168,7 +201,8 @@ impl Display for Token {
             WEEK => "week",
             WEEKS => "weeks",
             YEAR => "year",
-            YEARS => "years"
+            YEARS => "years",
+            _ => ""
         };
 
         f.write_str(s)
@@ -267,7 +301,24 @@ impl Scanner<'_> {
                         }
                     },
                     '@' => {
-                        //t = self.read_datetime();
+                        if self.match_char('T') {
+                            let time = self.read_time(pos);
+                            if let Err(e) = time {
+                                self.errors.push(format!("{} at pos {}", e.msg, pos));
+                            }
+                            else {
+                                tokens.push_back((time.unwrap(), pos));
+                            }
+                        }
+                        else {
+                            let dt = self.read_datetime();
+                            if let Err(e) = dt {
+                                self.errors.push(format!("{} at pos {}", e.msg, pos));
+                            }
+                            else {
+                                tokens.push_back((dt.unwrap(), pos));
+                            }
+                        }
                     },
                     '\'' => {
                         let t = self.read_string(pos);
@@ -450,6 +501,168 @@ impl Scanner<'_> {
     }
 
     #[inline]
+    fn read_time(&mut self, pos: usize) -> Result<Token, DateTimeParseError> {
+        let mut tmp = String::with_capacity(12);
+        loop {
+            match self.filter.next() {
+                Some((pos, c)) => {
+                    if c == ' ' {
+                        break;
+                    }
+                    tmp.push(c);
+                },
+                None => break
+            }
+        }
+        let nt = self.parse_time(tmp.as_str())?;
+        Ok(TIME(nt))
+    }
+
+    #[inline]
+    fn parse_time(&self, time_str: &str) -> Result<NaiveTime, DateTimeParseError> {
+        if !TIME_RE.is_match(time_str) {
+            return Err(DateTimeParseError::new("invalid time"));
+        }
+
+        let mut hour: Option<u32> = None;
+        let mut min: Option<u32> = None;
+        let mut sec: Option<u32> = None;
+        let mut milli: Option<u32> = None;
+
+        for p in  time_str.split(|c| c == ':' || c == '.') {
+            if hour.is_none() {
+                hour = Some(self.parse_u32(p, 24,"hours")?);
+            }
+            else if min.is_none() {
+                min = Some(self.parse_u32(p, 60,"minutes")?);
+            }
+            else if sec.is_none() {
+                sec = Some(self.parse_u32(p, 60,"seconds")?);
+            }
+            else if milli.is_none() {
+                milli = Some(self.parse_u32(p, 999, "milliseconds")?);
+            }
+        }
+
+        let hour = hour.unwrap_or(0);
+        let min = min.unwrap_or(0);
+        let sec = sec.unwrap_or(0);
+        let milli = milli.unwrap_or(0);
+        let nt = NaiveTime::from_hms_milli(hour, min, sec, milli);
+        Ok(nt)
+    }
+
+    /// parses the format YYYY-MM-DDThh:mm:ss.fff(+|-)hh:mm
+    #[inline]
+    fn read_datetime(&mut self) -> Result<Token, DateTimeParseError> {
+        let mut tmp = String::with_capacity(33);
+        loop {
+            match self.filter.next() {
+                Some((pos, c)) => {
+                    if c == ' ' {
+                        break;
+                    }
+                    tmp.push(c);
+                },
+                None => break
+            }
+        }
+
+        let mut parts = tmp.splitn(2, "T");
+        let date_part = parts.next();
+        if let None = date_part {
+            return Err(DateTimeParseError::new("invalid datetime, missing date"));
+        }
+        let date_part = date_part.unwrap();
+        if !DATE_RE.is_match(date_part) {
+            return Err(DateTimeParseError::new("invalid datetime format"));
+        }
+
+        let mut parsed = Parsed::default();
+        for p in date_part.split("-") {
+            if parsed.year.is_none() {
+                let y = self.parse_u32(p, 9999, "year")?;
+                parsed.set_year(y as i64);
+            }
+            else if parsed.month.is_none() {
+                let m = self.parse_u32(p, 12, "month")?;
+                parsed.set_month(m as i64);
+            }
+            else if parsed.day.is_none() {
+                let d = self.parse_u32(p, 31, "day")?;
+                parsed.set_day(d as i64);
+            }
+        }
+
+        let mut offset = 0;
+        let mut nt = NaiveTime::from_hms_milli(0, 0, 0, 0);
+        let time_with_tz_part = parts.next();
+        if let Some(time_with_tz_part) = time_with_tz_part {
+            if time_with_tz_part != "" {
+                let mut time_parts = time_with_tz_part.splitn(2, |c| c == 'z' || c == 'Z' || c ==  '+' || c ==  '-');
+                let time_part = time_parts.next().unwrap();
+                nt = self.parse_time(time_part)?;
+
+                if let Some(_) = time_parts.next() {
+                    let tz_part = &time_with_tz_part[time_part.len()..]; // this is required to preserve the z, Z, + or - char in the front
+                    offset = self.parse_tz(tz_part)?;
+                    let pr = parsed.set_offset(offset);
+                    if let Err(e) = pr {
+                        return Err(DateTimeParseError::new(format!("invalid datetime, {}", e.to_string())));
+                    }
+                }
+            }
+        }
+
+        if let None = parsed.offset {
+            parsed.set_offset(0);
+        }
+
+        parsed.set_hour(nt.hour() as i64);
+        parsed.set_minute(nt.minute() as i64);
+        parsed.set_second(nt.second() as i64);
+        parsed.set_nanosecond(nt.nanosecond() as i64);
+
+        if parsed.month.is_none() {
+            parsed.set_month(1);
+        }
+
+        if parsed.day.is_none() {
+            parsed.set_day(1);
+        }
+        let dt = parsed.to_datetime();
+        if let Err(e) = dt {
+            return Err(DateTimeParseError::new(e.to_string()));
+        }
+
+        let dt = dt.unwrap().with_timezone(&Utc);
+        Ok(DATE(dt))
+    }
+
+    #[inline]
+    fn parse_tz(&self, tz_val: &str) -> Result<i64, DateTimeParseError> {
+        if !TZ_RE.is_match(tz_val) {
+            return Err(DateTimeParseError::new("invalid timezone offset in datetime"));
+        }
+
+        let mut offset: i64 = 0;
+        if tz_val != "z" && tz_val != "Z" {
+            let mut tz_parts = tz_val[1..].split(":");
+            let hours = tz_parts.next().unwrap();
+            let hours = self.parse_u32(hours, 12, "tz hours")?;
+            let min = tz_parts.next().unwrap();
+            let min = self.parse_u32(min, 59, "tz minutes")?;
+
+            offset = (hours * 3600 + min * 60) as i64;
+            if tz_val.starts_with('-') {
+                offset = -offset;
+            }
+        }
+
+        Ok(offset)
+    }
+
+    #[inline]
     fn advance(&mut self) -> Option<(usize, char)> {
         self.filter.next()
     }
@@ -485,14 +698,30 @@ impl Scanner<'_> {
     fn is_digit(&self, c: char) -> bool {
         return c >= '0' && c <= '9';
     }
+
+    #[inline]
+    fn parse_u32(&self, val: &str, max: u32, field_name: &str) -> Result<u32, DateTimeParseError> {
+        let num = val.parse::<u32>();
+        if let Err(e) = num {
+            return Err(DateTimeParseError{msg: format!("could not parse value {} of {} {}", val, field_name, e.to_string())});
+        }
+
+        let num = num.unwrap();
+        if num > max {
+            return Err(DateTimeParseError::new(format!("invalid value {} given for {}", val, field_name)));
+        }
+
+        Ok(num)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::process::Command;
     use anyhow::Error;
+    use chrono::{DateTime, NaiveTime, Utc};
 
-    use crate::rapath::scanner::{scan_tokens, Token};
+    use super::*;
 
     struct FilterCandidate<'a> {
         filter: &'a str,
@@ -557,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn test_string_escape() -> Result<(), Error>{
+    fn test_string_escape() -> Result<(), Error> {
         let mut candidates: Vec<(&str, &str)> = Vec::new();
         candidates.push(("'it\\'s me'", "it's me"));
         candidates.push(("'it\\\"s me'", "it\"s me"));
@@ -574,6 +803,109 @@ mod tests {
             else {
                 assert!(false, format!("unexpected token received {}", r.0));
             }
+        }
+
+        let err = scan_tokens("'this is an invalid string");
+        assert!(err.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_time() -> Result<(), Error> {
+        let mut time_candidates: Vec<(&str, bool)> = Vec::new();
+        time_candidates.push(("14:58:00.100", true));
+        time_candidates.push(("14", true));
+        time_candidates.push(("1", false));
+        time_candidates.push(("11:", false));
+        for (input, expected) in time_candidates {
+            let actual = TIME_RE.is_match(input);
+            assert_eq!(expected, actual);
+        }
+
+        let mut candidates: Vec<(&str, NaiveTime)> = Vec::new();
+        candidates.push(("@T14:58:00.100", NaiveTime::from_hms_milli(14, 58, 00, 100)));
+        candidates.push(("@T14:58:00.200 ", NaiveTime::from_hms_milli(14, 58, 00, 200)));
+        candidates.push(("@T01", NaiveTime::from_hms_milli(1, 0, 0, 0)));
+        for (input, expected) in candidates {
+            let r = scan_tokens(input)?.pop_front().unwrap();
+            if let Token::TIME(actual) = r.0 {
+                assert_eq!(expected, actual);
+            }
+            else {
+                assert!(false, format!("unexpected token received {}", r.0));
+            }
+        }
+
+        let mut err_candidates = Vec::new();
+        err_candidates.push("@T");
+        err_candidates.push("@T1");
+        err_candidates.push("@T1:1:0");
+        err_candidates.push("@T1.1:0.");
+        err_candidates.push("@T1:1:0.");
+        err_candidates.push("@T1:1:");
+
+        for input in err_candidates {
+            let r = scan_tokens(input);
+            assert!(r.is_err());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_datetime() -> Result<(), Error> {
+        let mut date_candidates: Vec<(&str, bool)> = Vec::new();
+        date_candidates.push(("2022-02-10", true));
+        date_candidates.push(("2022-02", true));
+        date_candidates.push(("2022", true));
+        date_candidates.push(("2022-", false));
+        date_candidates.push(("2022-02-", false));
+        date_candidates.push(("2022-02-10-", false));
+        for (input, expected) in date_candidates {
+            let actual = DATE_RE.is_match(input);
+            assert_eq!(expected, actual);
+        }
+
+        let mut candidates: Vec<(&str, &DateTime<Utc>)> = Vec::new();
+        let dt = &Utc.ymd(2022, 2, 10).and_hms_milli(14, 58, 0, 100);
+        candidates.push(("@2022-02-10T14:58:00.100", dt));
+        candidates.push(("@2022-02-10T14:58:00.100Z", dt));
+        candidates.push(("@2022-02-10T14:58:00.100z", dt));
+        candidates.push(("@2022-02-10T14:58:00.100+00:00", dt));
+        candidates.push(("@2022-02-10T14:58:00.100-00:00", dt));
+        candidates.push(("@2022-02-10T15:58:00.100+01:00", dt)); // GMT + 1
+        candidates.push(("@2022-02-10T10:58:00.100-04:00", dt)); // GMT - 4
+        candidates.push(("@2022-02-10T10:28:00.100-04:30", dt)); // GMT - 4:30
+
+        let date_without_dm = &Utc.ymd(2022, 1, 1).and_hms_milli(14, 58, 0, 100);
+        candidates.push(("@2022T14:58:00.100", date_without_dm));
+
+        let date_without_time = &Utc.ymd(2022, 2, 10).and_hms_milli(0, 0, 0, 0);
+        candidates.push(("@2022-02-10T", date_without_time));
+        let date_without_time_and_day = &Utc.ymd(2022, 2, 1).and_hms_milli(0, 0, 0, 0);
+        candidates.push(("@2022-02T", date_without_time_and_day));
+
+        let date_without_tdm = &Utc.ymd(2022, 1, 1).and_hms_milli(0, 0, 0, 0);
+        candidates.push(("@2022T", date_without_tdm));
+
+        for (input, expected) in candidates {
+            let r = scan_tokens(input).unwrap().pop_front().unwrap();
+            if let Token::DATE(ref actual) = r.0 {
+                assert_eq!(expected, actual);
+            }
+            else {
+                assert!(false, format!("unexpected token received {}", r.0));
+            }
+        }
+
+        let mut err_candidates = Vec::new();
+        err_candidates.push("@abcdT12:11:00.000Z");
+        err_candidates.push("@2022-T12:11:00.000Z");
+
+        for input in err_candidates {
+            let r = scan_tokens(input);
+            assert!(r.is_err());
         }
 
         Ok(())
