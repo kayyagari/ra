@@ -8,7 +8,7 @@ use crate::rapath::scanner::Token::*;
 use rawbson::elem::Element;
 use std::rc::Rc;
 use crate::rapath::EvalResult;
-use crate::rapath::functions::where_::where_;
+use crate::rapath::functions::*;
 use crate::rapath::stypes::SystemType;
 
 pub enum Ast<'a> {
@@ -60,6 +60,9 @@ impl<'a, 'b> Function<'a> where 'a: 'b {
                 match name.as_str() {
                     "where" => {
                         where_(base, args)
+                    },
+                    "empty" => {
+                        empty(base, args)
                     },
                     _ => {
                         Err(EvalError::new(format!("unknown function name {}", name)))
