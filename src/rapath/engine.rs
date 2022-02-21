@@ -79,6 +79,7 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
         }
     }
 
+    #[inline]
     pub fn simple_compare<'b>(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>, op: &Operator) -> EvalResult<'b> {
         let ltype = lhs.get_type();
         let rtype = rhs.get_type();
@@ -107,6 +108,7 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
         }
     }
 
+    #[inline]
     fn unpack_singleton_base(base: Rc<SystemType>, is_lhs: bool) -> EvalResult {
         if let SystemType::Collection(c) = base.borrow() {
             if let Some(v) = c.get_if_singleton() {

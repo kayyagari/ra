@@ -95,14 +95,17 @@ pub struct SystemString<'b> {
 }
 
 impl<'b> SystemString<'b> {
+    #[inline]
     pub fn new(s: String) -> Self {
         SystemString{owned: Some(s), borrowed: None}
     }
 
+    #[inline]
     pub fn from_slice(s: &'b str) -> Self {
         SystemString{owned: None, borrowed: Some(s)}
     }
 
+    #[inline]
     pub fn as_str(&self) -> &str {
         if let Some(s) = self.borrowed {
             return s;
@@ -111,6 +114,7 @@ impl<'b> SystemString<'b> {
         self.owned.as_ref().unwrap().as_str()
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.as_str().len()
     }
@@ -133,14 +137,17 @@ pub struct Collection<'b> {
 }
 
 impl<'b> Collection<'b> {
+    #[inline]
     pub fn new() -> Self {
         Collection{val: Option::Some(vec!())}
     }
 
+    #[inline]
     pub fn new_empty() -> Self {
         Collection{val: Option::None}
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         if let Some(v) = &self.val {
             return v.is_empty()
@@ -149,14 +156,17 @@ impl<'b> Collection<'b> {
         true
     }
 
+    #[inline]
     pub fn push(&mut self, st: Rc<SystemType<'b>>) {
         self.val.as_mut().unwrap().push(st);
     }
 
+    #[inline]
     pub fn iter(&self) -> core::slice::Iter<Rc<SystemType<'b>>> {
          self.val.as_ref().unwrap().iter()
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         if let Some(v) = &self.val {
             return v.len();
@@ -164,6 +174,7 @@ impl<'b> Collection<'b> {
         0
     }
 
+    #[inline]
     pub fn get_if_singleton(&self) -> Option<Rc<SystemType<'b>>> {
         if let Some(v) = &self.val {
             if v.len() == 1 {
@@ -176,14 +187,17 @@ impl<'b> Collection<'b> {
 }
 
 impl SystemNumber {
+    #[inline]
     pub fn new_decimal(f: f64) -> Self {
         SystemNumber{val: N::Decimal(f)}
     }
 
+    #[inline]
     pub fn new_integer(i: i64) -> Self {
         SystemNumber{val: N::Integer(i)}
     }
 
+    #[inline]
     pub fn from(s: &String) -> Result<SystemNumber, ParseError> {
         let n = s.parse::<f64>();
         if let Err(e) = n {
@@ -201,6 +215,7 @@ impl SystemNumber {
         Ok(sd)
     }
 
+    #[inline]
     pub fn to_negative_val(&self) -> SystemNumber {
         match self.val {
             N::Integer(i) => {
@@ -212,10 +227,12 @@ impl SystemNumber {
         }
     }
 
+    #[inline]
     pub fn as_i64(&self) -> i64 {
         self.val.as_i64()
     }
 
+    #[inline]
     pub fn as_f64(&self) -> f64 {
         self.val.as_f64()
     }
