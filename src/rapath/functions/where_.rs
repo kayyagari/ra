@@ -31,7 +31,7 @@ pub fn where_<'b>(base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResul
         },
         SystemType::Collection(c) => {
             if c.is_empty() {
-                return Ok(Rc::new(SystemType::Collection(Collection::new_empty())));
+                return Ok(base);
             }
             let mut r = Collection::new();
             let e = &args[0];
@@ -68,7 +68,7 @@ fn nested_compare<'b>(lhs: Rc<SystemType<'b>>, rhs: Rc<SystemType<'b>>, op: &Ope
                         }
                     }
                     Ok(Rc::new(SystemType::Boolean(false)))
-                }
+                },
                 t => {
                     // control will only reach here, if to_systype couldn't convert the remaining ElementTypes to the appropriate SystemType
                     Err(EvalError::new(format!("unexpected element type found in custom comparator of where function {:?}", t)))
