@@ -54,9 +54,21 @@ pub struct SystemDateTime {
     val: DateTime<Utc>
 }
 
+impl SystemDateTime {
+    pub fn new(val: DateTime<Utc>) -> Self {
+        SystemDateTime{val}
+    }
+}
+
 #[derive(Debug, Eq, PartialOrd, PartialEq)]
 pub struct SystemTime {
     val: NaiveTime
+}
+
+impl SystemTime {
+    pub fn new(val: NaiveTime) -> Self {
+        SystemTime{val}
+    }
 }
 
 #[derive(Debug, Eq, PartialOrd, PartialEq)]
@@ -68,6 +80,12 @@ pub struct SystemConstant {
 pub struct SystemQuantity {
     val: f64,
     unit: String
+}
+
+impl SystemQuantity {
+    pub fn new(val: f64, unit: String) -> Self {
+        SystemQuantity{val, unit}
+    }
 }
 
 #[derive(Debug)]
@@ -144,6 +162,16 @@ impl<'b> Collection<'b> {
             return v.len();
         }
         0
+    }
+
+    pub fn get_if_singleton(&self) -> Option<Rc<SystemType<'b>>> {
+        if let Some(v) = &self.val {
+            if v.len() == 1 {
+                return Some(Rc::clone(&v[0]));
+            }
+        }
+
+        None
     }
 }
 

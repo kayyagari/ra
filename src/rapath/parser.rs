@@ -8,7 +8,7 @@ use crate::rapath::expr::Ast::Literal;
 use crate::rapath::functions::where_::{where_};
 use crate::rapath::scanner::{Token, TokenAndPos};
 use crate::rapath::scanner::Token::*;
-use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
+use crate::rapath::stypes::{Collection, SystemDateTime, SystemNumber, SystemQuantity, SystemString, SystemTime, SystemType};
 use crate::res_schema::SchemaDef;
 
 struct Parser<'b> {
@@ -66,6 +66,7 @@ impl<'a> Parser<'a> {
                 Ok(Ast::Literal {val: Rc::new(SystemType::String(SystemString::new(s)))})
             },
             IDENTIFIER(id) => {
+                // strip the resourcename if present in the beginning of the identifier
                 if !self.is_prev_dot() {
                     if self.is_resource_name(&id) {
                         if self.peek().0 == DOT {
@@ -80,10 +81,17 @@ impl<'a> Parser<'a> {
                 Ok(Ast::EnvVariable {val: SystemType::String(SystemString::new(c))})
             },
             NUMBER(n) => {
-                // TODO separate integer and decimal
-                // TODO handle quantity
                 let sd = SystemNumber::from(&n)?;
                 Ok(Ast::Literal {val: Rc::new(SystemType::Number(sd))})
+            },
+            DATE_TIME(dt) => {
+                Ok(Ast::Literal {val: Rc::new(SystemType::DateTime(SystemDateTime::new(dt)))})
+            },
+            TIME(t) => {
+                Ok(Ast::Literal {val: Rc::new(SystemType::Time(SystemTime::new(t)))})
+            },
+            QUANTITY(val, unit) => {
+                Ok(Ast::Literal {val: Rc::new(SystemType::Quantity(SystemQuantity::new(val, unit)))})
             },
             LEFT_PAREN => {
                 let e = self.expression(0)?;
@@ -108,7 +116,7 @@ impl<'a> Parser<'a> {
                         Err(ParseError::new(format!("invalid token type {:?} for applying unary minus operator", t)))
                     }
                 }
-            }
+            },
             _ => {
                 Err(ParseError::new(format!("unexpected token {}", t)))
             }
