@@ -13,7 +13,7 @@ use crate::rapath::functions::where_::where_;
 use crate::rapath::expr::{Ast, CmpFunc, Operator};
 use crate::rapath::expr::Ast::*;
 use crate::rapath::expr::Operator::*;
-use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
+use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, SystemTypeType};
 
 // pub struct ExecContext<'a> {
 //     env_vars: &'a HashMap<String, String>
@@ -79,23 +79,43 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
         }
     }
 
-    pub fn simple_compare<'b>(lr: Rc<SystemType<'b>>, rr: Rc<SystemType<'b>>, op: &Operator) -> EvalResult<'b> {
+    pub fn simple_compare<'b>(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>, op: &Operator) -> EvalResult<'b> {
+        let ltype = lhs.get_type();
+        let rtype = rhs.get_type();
+        if ltype == SystemTypeType::Collection && rtype != SystemTypeType::Collection {
+            lhs = unpack_singleton_base(lhs, true)?;
+        }
+        else if ltype != SystemTypeType::Collection && rtype == SystemTypeType::Collection {
+            rhs = unpack_singleton_base(rhs, false)?;
+        }
+
         match op {
             Equal => {
-                let r = lr == rr;
+                let r = lhs == rhs;
                 Ok(Rc::new(SystemType::Boolean(r)))
             },
             NotEqual => {
-                let r = lr != rr;
+                let r = lhs != rhs;
                 Ok(Rc::new(SystemType::Boolean(r)))
             },
             Greater => {
-                lr.gt(&rr)
+                lhs.gt(&rhs)
             },
             _ => {
                 Err(EvalError::new(format!("unsupported comparison operation {:?}", op)))
             }
         }
+    }
+
+    fn unpack_singleton_base(base: Rc<SystemType>, is_lhs: bool) -> EvalResult {
+        if let SystemType::Collection(c) = base.borrow() {
+            if let Some(v) = c.get_if_singleton() {
+                return Ok(v);
+            }
+        }
+
+        let orientation = if is_lhs { "lhs" } else { "rhs" };
+        Err(EvalError::new(format!("cannot compare, {} is not a singleton, use where function instead", orientation)))
     }
 
 #[cfg(test)]
@@ -110,6 +130,7 @@ mod tests {
     use crate::rapath::scanner::scan_tokens;
     use crate::rapath::stypes::{SystemNumber, SystemTypeType};
     use crate::rapath::stypes::SystemType;
+    use crate::utils::test_utils::parse_expression;
 
     #[test]
     fn test_doc_as_element() {
@@ -170,5 +191,34 @@ mod tests {
         assert_eq!(SystemTypeType::Boolean, result.get_type());
         println!("{:?}", result);
         assert_eq!(SystemType::Boolean(true), *result);
+    }
+
+    #[test]
+    fn test_simple_comparison_non_singleton() {
+        let bdoc = bson::doc!{"inner": [{"k": 1}, {"k": 1}, {"k": 2}, {"r": 7}] };
+        let raw = DocBuf::from_document(&bdoc);
+        let doc_el = Element::new(ElementType::EmbeddedDocument, raw.as_bytes());
+
+        let e = parse_expression("inner.k = 1");
+        let doc_base = Rc::new(SystemType::Element(doc_el));
+        let result = eval(&e, Rc::clone(&doc_base));
+        assert!(result.is_err());
+        assert!(result.err().unwrap().to_string().starts_with("cannot compare, lhs"));
+
+        let e = parse_expression("1 = inner.k");
+        let doc_base = Rc::new(SystemType::Element(doc_el));
+        let result = eval(&e, Rc::clone(&doc_base));
+        assert!(result.is_err());
+        assert!(result.err().unwrap().to_string().starts_with("cannot compare, rhs"));
+
+        let e = parse_expression("inner.r = 7");
+        let result = eval(&e, Rc::clone(&doc_base));
+        assert!(result.is_ok());
+        assert_eq!(true, result.unwrap().as_bool().unwrap());
+
+        let e = parse_expression("1 = inner.r");
+        let result = eval(&e, Rc::clone(&doc_base));
+        assert!(result.is_ok());
+        assert_eq!(false, result.unwrap().as_bool().unwrap());
     }
 }

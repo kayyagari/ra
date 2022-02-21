@@ -140,6 +140,25 @@ pub fn eval_path<'a, 'b>(name: &'a String, base: Rc<SystemType<'b>>) -> EvalResu
                 }
             }
         },
+        SystemType::Collection(c) => {
+            if c.is_empty() {
+                return Ok(base);
+            }
+            let mut r = Collection::new();
+            for item in c.iter() {
+                if let SystemType::Element(e) = item.borrow() {
+                    let item_result = eval_path(name, Rc::clone(item))?;
+                    if !item_result.is_empty() {
+                        r.push(item_result);
+                    }
+                }
+                else {
+                    return Err(EvalError::new(format!("a collection of SystemType Element are expected for path evaluation, but instead found one {}", item.get_type())));
+                }
+            }
+
+            Ok(Rc::new(SystemType::Collection(r)))
+        },
         _ => {
             return Err(EvalError::new(format!("invalid SystemType for path {}. It must be either an element or a collection of elements", name)));
         }
