@@ -9,5 +9,6 @@ pub mod expr;
 pub mod engine;
 mod functions;
 mod element_utils;
+mod operations;
 
 pub type EvalResult<'a> = Result<Rc<SystemType<'a>>, EvalError>;

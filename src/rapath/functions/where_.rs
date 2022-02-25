@@ -51,6 +51,14 @@ pub fn where_<'b>(base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResul
 }
 
 fn nested_compare<'b>(lhs: Rc<SystemType<'b>>, rhs: Rc<SystemType<'b>>, op: &Operator) -> EvalResult<'b> {
+    // doing an individual check to avoid creation of an empty collection
+    if lhs.is_empty() {
+        return Ok(lhs);
+    }
+    else if rhs.is_empty() {
+        return Ok(rhs);
+    }
+
     match lhs.borrow() {
         SystemType::Element(e) => {
             match e.element_type() {

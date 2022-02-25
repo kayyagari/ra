@@ -5,6 +5,7 @@ use std::ptr::eq;
 use std::rc::Rc;
 
 use chrono::{DateTime, NaiveTime, Utc};
+use log::warn;
 use rawbson::elem::Element;
 use serde_json::ser::Formatter;
 
@@ -58,6 +59,11 @@ impl SystemDateTime {
     pub fn new(val: DateTime<Utc>) -> Self {
         SystemDateTime{val}
     }
+
+    pub fn equals<'b>(lhs: &SystemDateTime, rhs: &SystemDateTime) -> SystemType<'b> {
+        let b = lhs.val.eq(&rhs.val);
+        SystemType::Boolean(b)
+    }
 }
 
 #[derive(Debug, Eq, PartialOrd, PartialEq)]
@@ -85,6 +91,11 @@ pub struct SystemQuantity {
 impl SystemQuantity {
     pub fn new(val: f64, unit: String) -> Self {
         SystemQuantity{val, unit}
+    }
+
+    pub fn equals<'b>(lhs: &SystemQuantity, rhs: &SystemQuantity) -> SystemType<'b> {
+        let b = lhs.unit == rhs.unit && lhs.val == rhs.val;
+        SystemType::Boolean(b)
     }
 }
 
@@ -127,7 +138,7 @@ impl<'b> PartialEq for SystemString<'b> {
     }
 
     fn ne(&self, other: &Self) -> bool {
-        self.as_str() != other.as_str()
+        !self.eq(other)
     }
 }
 
@@ -492,6 +503,87 @@ impl<'b> SystemType<'b> {
             _ => true // there is some value
         }
     }
+
+    pub fn equals(lhs: &SystemType, rhs: &SystemType) -> SystemType<'b> {
+        //println!("lhs = {}, rhs = {}", self.get_type(), other.get_type());
+        if lhs.get_type() != rhs.get_type() {
+            return SystemType::Collection(Collection::new_empty());
+        }
+
+        match lhs {
+            SystemType::Boolean(b1) => {
+                if let SystemType::Boolean(b2) = rhs {
+                    return SystemType::Boolean(*b1 == *b2);
+                }
+            },
+            SystemType::String(s1) => {
+                if let SystemType::String(s2) = rhs {
+                    let b = *s1 == *s2;
+                    return SystemType::Boolean(b);
+                }
+            },
+            SystemType::DateTime(dt1) => {
+                if let SystemType::DateTime(dt2) = rhs {
+                    return SystemDateTime::equals(dt1, dt2);
+                }
+            },
+            SystemType::Number(n1) => {
+                if let SystemType::Number(n2) = rhs {
+                    let b = *n1 == *n2;
+                    return SystemType::Boolean(b);
+                }
+            },
+            SystemType::Quantity(q1) => {
+                if let SystemType::Quantity(q2) = rhs {
+                    return SystemQuantity::equals(q1,q2);
+                }
+            },
+            SystemType::Element(e1) => {
+                if let SystemType::Element(e2) = rhs {
+                    let b = element_utils::eq(e1, e2);
+                    if let Err(b) = b {
+                        warn!("error while comparing equality on two Elements, undefined will be returned. {}", b.to_string());
+                    }
+                    else {
+                        return SystemType::Boolean(b.unwrap());
+                    }
+                }
+            },
+            SystemType::Collection(c1) => {
+                if let SystemType::Collection(c2) = rhs {
+                    if c1.len() != c2.len() {
+                        return SystemType::Boolean(false);
+                    }
+                    for (i, lst) in c1.iter().enumerate() {
+                        let rst = c2.val.as_ref().unwrap().get(i);
+                        if let Some(rst) = rst {
+                            let b = lst.eq(rst);
+                            if !b {
+                                return SystemType::Boolean(b);
+                            }
+                        }
+                        else {
+                            return SystemType::Boolean(false);
+                        }
+                    }
+                }
+            },
+            _ => {
+            }
+        }
+
+        SystemType::Collection(Collection::new_empty())
+    }
+
+    pub fn not_equals(lhs: &SystemType, rhs: &SystemType) -> SystemType<'b> {
+        let r = SystemType::equals(lhs, rhs);
+        if r.is_empty() {
+            return r;
+        }
+
+        let b = r.as_bool().unwrap();
+        SystemType::Boolean(!b)
+    }
 }
 
 impl Eq for SystemQuantity {}
@@ -508,69 +600,6 @@ impl PartialEq for SystemQuantity {
 impl<'b> Eq for SystemType<'b> {}
 impl<'b> PartialEq for SystemType<'b> {
     fn eq(&self, other: &Self) -> bool {
-        //println!("lhs = {}, rhs = {}", self.get_type(), other.get_type());
-        if self.get_type() != other.get_type() {
-            return false;
-        }
-
-        match self {
-            SystemType::Boolean(b1) => {
-                if let SystemType::Boolean(b2) = other {
-                    return *b1 == *b2;
-                }
-            },
-            SystemType::String(s1) => {
-                if let SystemType::String(s2) = other {
-                    return *s1 == *s2;
-                }
-            },
-            SystemType::DateTime(dt1) => {
-                if let SystemType::DateTime(dt2) = other {
-                    return *dt1 == *dt2;
-                }
-            },
-            SystemType::Number(n1) => {
-                if let SystemType::Number(n2) = other {
-                    return *n1 == *n2;
-                }
-            },
-            SystemType::Quantity(q1) => {
-                if let SystemType::Quantity(q2) = other {
-                    return *q1 == *q2;
-                }
-            },
-            SystemType::Element(e1) => {
-                if let SystemType::Element(e2) = other {
-                    let r = element_utils::eq(e1, e2);
-                    if let Ok(r) = r {
-                        return r;
-                    }
-                }
-            },
-            SystemType::Collection(c1) => {
-                if let SystemType::Collection(c2) = other {
-                    if c1.len() != c2.len() {
-                        return false;
-                    }
-                    for (i, lst) in c1.iter().enumerate() {
-                        let rst = c2.val.as_ref().unwrap().get(i);
-                        if let Some(rst) = rst {
-                            let b = lst.eq(rst);
-                            if !b {
-                                return b;
-                            }
-                        }
-                        else {
-                            return false;
-                        }
-                    }
-                }
-            }
-            _ => {
-                return false;
-            }
-        }
-
         false
     }
 
@@ -584,7 +613,7 @@ mod tests {
     use bson::spec::ElementType;
     use rawbson::elem::Element;
     use serde_json::Value;
-    use crate::rapath::stypes::SystemType;
+    use crate::rapath::stypes::{Collection, SystemType};
     use crate::utils::test_utils::{read_patient, to_docbuf, update};
 
     #[test]
@@ -597,12 +626,14 @@ mod tests {
 
         let st1 = SystemType::Element(p1);
         let st2 = SystemType::Element(p2);
-        assert_eq!(st1, st2);
+        let r = SystemType::equals(&st1, &st2);
+        assert_eq!(true, r.as_bool().unwrap());
 
         update(&mut p_json, "/name/given", Value::String(String::from("Peacock")));
         let p2 = to_docbuf(&p_json);
         let p2 = Element::new(ElementType::EmbeddedDocument, p2.as_bytes());
         let st2 = SystemType::Element(p2);
-        assert_ne!(st1, st2);
+        let r = SystemType::equals(&st1, &st2);
+        assert_eq!(false, r.as_bool().unwrap());
     }
 }

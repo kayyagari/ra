@@ -42,6 +42,6 @@ mod tests {
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(SystemTypeType::Boolean, result.get_type());
-        assert_eq!(SystemType::Boolean(false), *result);
+        assert_eq!(false, result.as_bool().unwrap());
     }
 }

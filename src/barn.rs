@@ -258,6 +258,7 @@ mod tests {
     #[test]
     fn test_search() -> Result<(), anyhow::Error> {
         let path = PathBuf::from("/tmp/testdb1");
+        std::fs::remove_dir_all(&path);
         let barn = Barn::open_with_default_schema(&path)?;
         let sd = parse_res_def(&barn.read_schema()?)?;
         let patient_schema = sd.resources.get("Patient").unwrap();
@@ -281,7 +282,8 @@ mod tests {
         let fetched_data = DocBuf::from_document(&fetched_data);
         let fetched_data = Element::new(ElementType::EmbeddedDocument, fetched_data.as_bytes());
 
-        assert_eq!(SystemType::Element(inserted_data), SystemType::Element(fetched_data));
+        let equals_result = SystemType::equals(&SystemType::Element(inserted_data), &SystemType::Element(fetched_data));
+        assert_eq!(true, equals_result.as_bool().unwrap());
 
         std::fs::remove_dir_all(&path);
         Ok(())
