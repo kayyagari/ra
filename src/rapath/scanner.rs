@@ -11,6 +11,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 use crate::errors::ScanError;
+use crate::rapath::stypes::{SystemDateTime, SystemTime};
 
 use self::Token::*;
 
@@ -55,6 +56,37 @@ lazy_static! {
         words
     };
 
+    pub static ref CALENDAR_UNIT_ALIAS: HashMap<&'static str, &'static str> = {
+        let mut units = HashMap::new();
+        units.insert("millisecond", "millisecond");
+        units.insert("milliseconds", "millisecond");
+        units.insert("second", "second");
+        units.insert("seconds", "second");
+        units.insert("minute", "minute");
+        units.insert("minutes", "minute");
+        units.insert("hour", "hour");
+        units.insert("hours", "hour");
+        units.insert("day", "day");
+        units.insert("days", "day");
+        units.insert("week", "week");
+        units.insert("weeks", "week");
+        units.insert("months", "month");
+        units.insert("month", "month");
+        units.insert("years", "year");
+        units.insert("year", "year");
+
+        // the below mappings are for UCUM codes for the same calenda units
+        // the below are not used by the scanner but by the SystemQuantity::new() method
+        units.insert("a", "a");
+        units.insert("mo", "mo");
+        units.insert("wk", "wk");
+        units.insert("d", "d");
+        units.insert("h", "h");
+        units.insert("min", "min");
+        units.insert("s", "s");
+        units.insert("ms", "ms");
+        units
+    };
     static ref TIME_RE: Regex = Regex::new(r"^(\d{2}(:\d{2}(:\d{2}(\.\d{3})?)?)?)$").unwrap();
     static ref DATE_RE: Regex = Regex::new(r"^(\d{4}(-\d{2}(-\d{2})?)?)$").unwrap();
     static ref TZ_RE: Regex = Regex::new(r"^(z|Z|(\+|-)\d{2}:\d{2})$").unwrap();
@@ -83,7 +115,7 @@ pub enum Token {
     UNION,
 
     IDENTIFIER(String), QUANTITY(f64, String),
-    STRING(String), NUMBER(String), DATE_TIME(DateTime<Utc>), TIME(NaiveTime),
+    STRING(String), NUMBER(String), DATE_TIME(SystemDateTime), TIME(SystemTime),
 
     DIV, MOD, TRUE, FALSE,
     IS, AS, IN, CONTAINS, AND, OR, XOR, IMPLIES,
@@ -116,6 +148,23 @@ impl Display for DateTimeParseError {
     }
 }
 
+#[derive(Debug, Error)]
+struct CalendarUnitParseError {
+    msg: String
+}
+
+impl CalendarUnitParseError {
+    fn new<S: AsRef<str>>(msg: S) -> Self {
+        Self{msg: String::from(msg.as_ref())}
+    }
+}
+
+impl Display for CalendarUnitParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
 pub fn scan_tokens(filter: &str) -> Result<VecDeque<TokenAndPos>, ScanError> {
     let chars = filter.char_indices().peekable();
     let mut scanner = Scanner {
@@ -135,10 +184,10 @@ pub fn scan_tokens(filter: &str) -> Result<VecDeque<TokenAndPos>, ScanError> {
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if let TIME(t) = self {
-            return f.write_str(t.format(TIME_FORMAT).to_string().as_str());
+            return f.write_str(t.format(TIME_FORMAT).as_str());
         }
         else if let DATE_TIME(d) = self {
-            return f.write_str(d.format(DATETIME_FORMAT).to_string().as_str());
+            return f.write_str(d.format(DATETIME_FORMAT).as_str());
         }
 
         let s=
@@ -302,7 +351,7 @@ impl Scanner<'_> {
                     },
                     '@' => {
                         if self.match_char('T') {
-                            let time = self.read_time(pos);
+                            let time = self.scan_time(pos);
                             if let Err(e) = time {
                                 self.errors.push(format!("{} at pos {}", e.msg, pos));
                             }
@@ -311,7 +360,7 @@ impl Scanner<'_> {
                             }
                         }
                         else {
-                            let dt = self.read_datetime();
+                            let dt = self.scan_datetime();
                             if let Err(e) = dt {
                                 self.errors.push(format!("{} at pos {}", e.msg, pos));
                             }
@@ -368,7 +417,7 @@ impl Scanner<'_> {
                         else {
                             let id = self.read_identifier(c, pos);
                             if let Some(k) = KEYWORDS.get(id.to_lowercase().as_str()) {
-                                tokens.push_back((k.clone(), pos));
+                                self.convert_keyword(&mut tokens, &id, k, pos);
                             }
                             else {
                                 tokens.push_back((IDENTIFIER(id), pos));
@@ -519,7 +568,7 @@ impl Scanner<'_> {
     }
 
     #[inline]
-    fn read_time(&mut self, pos: usize) -> Result<Token, DateTimeParseError> {
+    fn scan_time(&mut self, pos: usize) -> Result<Token, DateTimeParseError> {
         let mut tmp = String::with_capacity(12);
         loop {
             match self.filter.next() {
@@ -532,12 +581,14 @@ impl Scanner<'_> {
                 None => break
             }
         }
-        let nt = self.parse_time(tmp.as_str())?;
-        Ok(TIME(nt))
+
+        let mut precision: u8 = 0;
+        let (nt, precision) = self.parse_time(tmp.as_str(), precision)?;
+        Ok(TIME(SystemTime::new(nt, precision)))
     }
 
     #[inline]
-    fn parse_time(&self, time_str: &str) -> Result<NaiveTime, DateTimeParseError> {
+    fn parse_time(&self, time_str: &str, mut precision: u8) -> Result<(NaiveTime, u8), DateTimeParseError> {
         if !TIME_RE.is_match(time_str) {
             return Err(DateTimeParseError::new("invalid time"));
         }
@@ -550,12 +601,15 @@ impl Scanner<'_> {
         for p in  time_str.split(|c| c == ':' || c == '.') {
             if hour.is_none() {
                 hour = Some(self.parse_u32(p, 24,"hours")?);
+                precision |= 4;
             }
             else if min.is_none() {
                 min = Some(self.parse_u32(p, 60,"minutes")?);
+                precision |= 2;
             }
             else if sec.is_none() {
                 sec = Some(self.parse_u32(p, 60,"seconds")?);
+                precision |= 1;
             }
             else if milli.is_none() {
                 milli = Some(self.parse_u32(p, 999, "milliseconds")?);
@@ -567,12 +621,12 @@ impl Scanner<'_> {
         let sec = sec.unwrap_or(0);
         let milli = milli.unwrap_or(0);
         let nt = NaiveTime::from_hms_milli(hour, min, sec, milli);
-        Ok(nt)
+        Ok((nt, precision))
     }
 
     /// parses the format YYYY-MM-DDThh:mm:ss.fff(+|-)hh:mm
     #[inline]
-    fn read_datetime(&mut self) -> Result<Token, DateTimeParseError> {
+    fn scan_datetime(&mut self) -> Result<Token, DateTimeParseError> {
         let mut tmp = String::with_capacity(33);
         loop {
             match self.filter.next() {
@@ -596,19 +650,23 @@ impl Scanner<'_> {
             return Err(DateTimeParseError::new("invalid datetime format"));
         }
 
+        let mut precision: u8 = 0;
         let mut parsed = Parsed::default();
         for p in date_part.split("-") {
             if parsed.year.is_none() {
                 let y = self.parse_u32(p, 9999, "year")?;
                 parsed.set_year(y as i64);
+                precision |= 32;
             }
             else if parsed.month.is_none() {
                 let m = self.parse_u32(p, 12, "month")?;
                 parsed.set_month(m as i64);
+                precision |= 16;
             }
             else if parsed.day.is_none() {
                 let d = self.parse_u32(p, 31, "day")?;
                 parsed.set_day(d as i64);
+                precision |= 8;
             }
         }
 
@@ -619,7 +677,9 @@ impl Scanner<'_> {
             if time_with_tz_part != "" {
                 let mut time_parts = time_with_tz_part.splitn(2, |c| c == 'z' || c == 'Z' || c ==  '+' || c ==  '-');
                 let time_part = time_parts.next().unwrap();
-                nt = self.parse_time(time_part)?;
+                let tmp = self.parse_time(time_part, precision)?;
+                nt = tmp.0;
+                precision = tmp.1;
 
                 if let Some(_) = time_parts.next() {
                     let tz_part = &time_with_tz_part[time_part.len()..]; // this is required to preserve the z, Z, + or - char in the front
@@ -654,7 +714,7 @@ impl Scanner<'_> {
         }
 
         let dt = dt.unwrap().with_timezone(&Utc);
-        Ok(DATE_TIME(dt))
+        Ok(DATE_TIME(SystemDateTime::new(dt, precision)))
     }
 
     #[inline]
@@ -678,6 +738,44 @@ impl Scanner<'_> {
         }
 
         Ok(offset)
+    }
+
+    #[inline]
+    fn convert_keyword(&mut self, tokens: &mut VecDeque<TokenAndPos>, name: &String, current: &Token, pos: usize) {
+        match current {
+            SECOND | SECONDS | MILLISECOND | MILLISECONDS | MINUTE | MINUTES |
+            HOUR | HOURS | DAY | DAYS | MONTH | MONTHS | YEAR | YEARS => {
+                let prev = tokens.pop_back();
+                if let None = prev {
+                    self.errors.push(format!("invalid placement of calendar unit {}", name));
+                }
+                else {
+                    let prev = prev.unwrap();
+                    if let NUMBER(n) = prev.0 {
+                        let float = n.parse::<f64>();
+                        if let Err(e) = float {
+                            self.errors.push(format!("invalid value given for calendar quantity '{}' starting at position {}", n, pos));
+                        }
+                        else {
+                            let alias = CALENDAR_UNIT_ALIAS.get(name.as_str());
+                            if let None = alias {
+                                self.errors.push(format!("invalid calendar unit {}", name));
+                            }
+                            else {
+                                let name = String::from(*alias.unwrap());
+                                tokens.push_back((QUANTITY(float.unwrap(), name), pos));
+                            }
+                        }
+                    }
+                    else {
+                        self.errors.push(format!("invalid token present before calendar quantity '{}' starting at position {}", prev.0, pos));
+                    }
+                }
+            },
+            _ => {
+                tokens.push_back((current.clone(), pos));
+            }
+        }
     }
 
     #[inline]
@@ -848,7 +946,7 @@ mod tests {
         for (input, expected) in candidates {
             let r = scan_tokens(input)?.pop_front().unwrap();
             if let Token::TIME(actual) = r.0 {
-                assert_eq!(expected, actual);
+                assert_eq!(expected.format(TIME_FORMAT).to_string(), actual.format(TIME_FORMAT));
             }
             else {
                 assert!(false, format!("unexpected token received {}", r.0));
@@ -910,7 +1008,7 @@ mod tests {
         for (input, expected) in candidates {
             let r = scan_tokens(input).unwrap().pop_front().unwrap();
             if let Token::DATE_TIME(ref actual) = r.0 {
-                assert_eq!(expected, actual);
+                assert_eq!(expected.format(DATETIME_FORMAT).to_string(), actual.format(DATETIME_FORMAT));
             }
             else {
                 assert!(false, format!("unexpected token received {}", r.0));
@@ -952,6 +1050,52 @@ mod tests {
         //     let r = scan_tokens(input);
         //     assert!(r.is_err());
         // }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_system_datetime_equality() -> Result<(), Error> {
+        let mut candidates: Vec<(&str, u8, &DateTime<Utc>)> = Vec::new();
+        let dt = &Utc.ymd(2022, 2, 10).and_hms_milli(14, 58, 0, 100);
+        candidates.push(("@2022-02-10T14:58:00.100", 63, dt));
+        candidates.push(("@2022-02-10T14:58:00.100Z", 63, dt));
+
+        for (input, precision, expected) in candidates {
+            let r = scan_tokens(input)?.pop_front().unwrap();
+            if let Token::DATE_TIME(ref actual) = r.0 {
+                let expected = &SystemDateTime::new(*expected, precision);
+                let r = SystemDateTime::equals(expected, actual);
+                assert!(r.as_bool().unwrap());
+            }
+            else {
+                assert!(false, format!("unexpected token received {}", r.0));
+            }
+        }
+
+        // missing seconds and milliseconds part should result in empty result
+        let r = scan_tokens("@2022-02-10T14:58")?.pop_front().unwrap();
+        if let Token::DATE_TIME(ref actual) = r.0 {
+            let expected = &SystemDateTime::new(*dt, 63);
+            let r = SystemDateTime::equals(expected, actual);
+            assert!(r.is_empty());
+        }
+
+        let mut candidates: Vec<(&str, u8, NaiveTime)> = Vec::new();
+        candidates.push(("@T14:58:00.100", 7, NaiveTime::from_hms_milli(14, 58, 00, 100)));
+        candidates.push(("@T14:58:00.200 ", 7, NaiveTime::from_hms_milli(14, 58, 00, 200)));
+        candidates.push(("@T01", 4, NaiveTime::from_hms_milli(1, 0, 0, 0)));
+        for (input, precision, expected) in candidates {
+            let r = scan_tokens(input)?.pop_front().unwrap();
+            if let Token::TIME(ref actual) = r.0 {
+                let expected = &SystemTime::new(expected, precision);
+                let r = SystemTime::equals(expected, actual);
+                assert!(r.as_bool().unwrap());
+            }
+            else {
+                assert!(false, format!("unexpected token received {}", r.0));
+            }
+        }
 
         Ok(())
     }

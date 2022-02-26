@@ -85,10 +85,10 @@ impl<'a> Parser<'a> {
                 Ok(Ast::Literal {val: Rc::new(SystemType::Number(sd))})
             },
             DATE_TIME(dt) => {
-                Ok(Ast::Literal {val: Rc::new(SystemType::DateTime(SystemDateTime::new(dt)))})
+                Ok(Ast::Literal {val: Rc::new(SystemType::DateTime(dt))})
             },
             TIME(t) => {
-                Ok(Ast::Literal {val: Rc::new(SystemType::Time(SystemTime::new(t)))})
+                Ok(Ast::Literal {val: Rc::new(SystemType::Time(t))})
             },
             QUANTITY(val, unit) => {
                 Ok(Ast::Literal {val: Rc::new(SystemType::Quantity(SystemQuantity::new(val, unit)))})

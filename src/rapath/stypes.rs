@@ -12,6 +12,7 @@ use serde_json::ser::Formatter;
 use crate::errors::{EvalError, ParseError};
 use crate::rapath::stypes::N::{Decimal, Integer};
 use crate::rapath::element_utils;
+use crate::rapath::scanner::CALENDAR_UNIT_ALIAS;
 
 #[derive(Debug)]
 pub enum SystemType<'b> {
@@ -50,30 +51,51 @@ enum N {
     // PositiveInt(u64),
 }
 
-#[derive(Debug, Eq, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialOrd, PartialEq)]
 pub struct SystemDateTime {
-    val: DateTime<Utc>
+    val: DateTime<Utc>,
+    precision: u8
 }
 
 impl SystemDateTime {
-    pub fn new(val: DateTime<Utc>) -> Self {
-        SystemDateTime{val}
+    pub fn new(val: DateTime<Utc>, precision: u8) -> Self {
+        SystemDateTime{val, precision}
+    }
+
+    pub fn format(&self, fmt: &str) -> String {
+        self.val.format(fmt).to_string()
     }
 
     pub fn equals<'b>(lhs: &SystemDateTime, rhs: &SystemDateTime) -> SystemType<'b> {
+        if lhs.precision != rhs.precision {
+            return SystemType::Collection(Collection::new_empty());
+        }
         let b = lhs.val.eq(&rhs.val);
         SystemType::Boolean(b)
     }
 }
 
-#[derive(Debug, Eq, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialOrd, PartialEq)]
 pub struct SystemTime {
-    val: NaiveTime
+    val: NaiveTime,
+    precision: u8
 }
 
 impl SystemTime {
-    pub fn new(val: NaiveTime) -> Self {
-        SystemTime{val}
+    pub fn new(val: NaiveTime, precision: u8) -> Self {
+        SystemTime{val, precision}
+    }
+
+    pub fn format(&self, fmt: &str) -> String {
+        self.val.format(fmt).to_string()
+    }
+
+    pub fn equals<'b>(lhs: &SystemTime, rhs: &SystemTime) -> SystemType<'b> {
+        if lhs.precision != rhs.precision {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val.eq(&rhs.val);
+        SystemType::Boolean(b)
     }
 }
 
@@ -85,12 +107,20 @@ pub struct SystemConstant {
 #[derive(Debug)]
 pub struct SystemQuantity {
     val: f64,
-    unit: String
+    unit: String,
+    cal_unit: bool
 }
 
 impl SystemQuantity {
-    pub fn new(val: f64, unit: String) -> Self {
-        SystemQuantity{val, unit}
+    pub fn new(val: f64, mut unit: String) -> Self {
+        let unit_str = unit.as_str();
+        let cal_unit = CALENDAR_UNIT_ALIAS.contains_key(unit_str);
+        if cal_unit && unit_str == "s" {
+            // because 1 second == 1 's'
+            // this makes it easy to compare in equals() method
+            unit = String::from("second");
+        }
+        SystemQuantity{val, unit, cal_unit}
     }
 
     pub fn equals<'b>(lhs: &SystemQuantity, rhs: &SystemQuantity) -> SystemType<'b> {
@@ -527,6 +557,11 @@ impl<'b> SystemType<'b> {
                     return SystemDateTime::equals(dt1, dt2);
                 }
             },
+            SystemType::Time(t1) => {
+                if let SystemType::Time(t2) = rhs {
+                    return SystemTime::equals(t1, t2);
+                }
+            },
             SystemType::Number(n1) => {
                 if let SystemType::Number(n2) = rhs {
                     let b = *n1 == *n2;
@@ -613,7 +648,7 @@ mod tests {
     use bson::spec::ElementType;
     use rawbson::elem::Element;
     use serde_json::Value;
-    use crate::rapath::stypes::{Collection, SystemType};
+    use crate::rapath::stypes::{Collection, SystemDateTime, SystemQuantity, SystemType};
     use crate::utils::test_utils::{read_patient, to_docbuf, update};
 
     #[test]
@@ -635,5 +670,20 @@ mod tests {
         let st2 = SystemType::Element(p2);
         let r = SystemType::equals(&st1, &st2);
         assert_eq!(false, r.as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_system_quantity_equality() {
+        let lhs = SystemQuantity::new(1.0, String::from("second"));
+        let rhs = SystemQuantity::new(1.0, String::from("s"));
+        assert!(SystemQuantity::equals(&lhs, &rhs).as_bool().unwrap());
+
+        let lhs = SystemQuantity::new(1.0, String::from("mg"));
+        let rhs = SystemQuantity::new(1.0, String::from("mg"));
+        assert!(SystemQuantity::equals(&lhs, &rhs).as_bool().unwrap());
+
+        let lhs = SystemQuantity::new(1.0, String::from("year"));
+        let rhs = SystemQuantity::new(1.0, String::from("a"));
+        assert_eq!(false, SystemQuantity::equals(&lhs, &rhs).as_bool().unwrap());
     }
 }
