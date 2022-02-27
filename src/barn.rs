@@ -282,7 +282,9 @@ mod tests {
         let fetched_data = DocBuf::from_document(&fetched_data);
         let fetched_data = Element::new(ElementType::EmbeddedDocument, fetched_data.as_bytes());
 
-        let equals_result = SystemType::equals(&SystemType::Element(inserted_data), &SystemType::Element(fetched_data));
+        let lhs = Rc::new(SystemType::Element(inserted_data));
+        let rhs = Rc::new(SystemType::Element(fetched_data));
+        let equals_result = SystemType::equals(lhs, rhs)?;
         assert_eq!(true, equals_result.as_bool().unwrap());
 
         std::fs::remove_dir_all(&path);

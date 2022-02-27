@@ -81,31 +81,12 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
 
     #[inline]
     pub fn simple_compare<'b>(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>, op: &Operator) -> EvalResult<'b> {
-        // doing an individual check to avoid creation of an empty collection
-        if lhs.is_empty() {
-            return Ok(lhs);
-        }
-        else if rhs.is_empty() {
-            return Ok(rhs);
-        }
-
-        let ltype = lhs.get_type();
-        let rtype = rhs.get_type();
-        if ltype == SystemTypeType::Collection && rtype != SystemTypeType::Collection {
-            lhs = unpack_singleton_base(lhs, true)?;
-        }
-        else if ltype != SystemTypeType::Collection && rtype == SystemTypeType::Collection {
-            rhs = unpack_singleton_base(rhs, false)?;
-        }
-
         match op {
             Equal => {
-                let r = SystemType::equals(lhs.borrow(), rhs.borrow());
-                Ok(Rc::new(r))
+                SystemType::equals(lhs, rhs)
             },
             NotEqual => {
-                let r = SystemType::equals(lhs.borrow(), rhs.borrow());
-                Ok(Rc::new(r))
+                SystemType::not_equals(lhs, rhs)
             },
             Greater => {
                 lhs.gt(&rhs)
@@ -114,18 +95,6 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
                 Err(EvalError::new(format!("unsupported comparison operation {:?}", op)))
             }
         }
-    }
-
-    #[inline]
-    fn unpack_singleton_base(base: Rc<SystemType>, is_lhs: bool) -> EvalResult {
-        if let SystemType::Collection(c) = base.borrow() {
-            if let Some(v) = c.get_if_singleton() {
-                return Ok(v);
-            }
-        }
-
-        let orientation = if is_lhs { "lhs" } else { "rhs" };
-        Err(EvalError::new(format!("cannot compare, {} is not a singleton, use where function instead", orientation)))
     }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::ops::Add;
@@ -11,7 +12,7 @@ use serde_json::ser::Formatter;
 
 use crate::errors::{EvalError, ParseError};
 use crate::rapath::stypes::N::{Decimal, Integer};
-use crate::rapath::element_utils;
+use crate::rapath::{element_utils, EvalResult};
 use crate::rapath::scanner::CALENDAR_UNIT_ALIAS;
 
 #[derive(Debug)]
@@ -534,90 +535,113 @@ impl<'b> SystemType<'b> {
         }
     }
 
-    pub fn equals(lhs: &SystemType, rhs: &SystemType) -> SystemType<'b> {
+    pub fn equals(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>) -> EvalResult<'b> {
         //println!("lhs = {}, rhs = {}", self.get_type(), other.get_type());
-        if lhs.get_type() != rhs.get_type() {
-            return SystemType::Collection(Collection::new_empty());
+
+        if lhs.is_empty() {
+            return Ok(lhs);
         }
+        else if rhs.is_empty() {
+            return Ok(rhs);
+        }
+
+        let ltype = lhs.get_type();
+        let rtype = rhs.get_type();
+        if ltype == SystemTypeType::Collection && rtype != SystemTypeType::Collection {
+            lhs = SystemType::unpack_singleton_base(lhs, true)?;
+        }
+        else if ltype != SystemTypeType::Collection && rtype == SystemTypeType::Collection {
+            rhs = SystemType::unpack_singleton_base(rhs, false)?;
+        }
+
+        let lhs = lhs.borrow();
+        let rhs = rhs.borrow();
 
         match lhs {
             SystemType::Boolean(b1) => {
                 if let SystemType::Boolean(b2) = rhs {
-                    return SystemType::Boolean(*b1 == *b2);
+                    return Ok(Rc::new(SystemType::Boolean(*b1 == *b2)));
                 }
             },
             SystemType::String(s1) => {
                 if let SystemType::String(s2) = rhs {
                     let b = *s1 == *s2;
-                    return SystemType::Boolean(b);
+                    return Ok(Rc::new(SystemType::Boolean(b)));
                 }
             },
             SystemType::DateTime(dt1) => {
                 if let SystemType::DateTime(dt2) = rhs {
-                    return SystemDateTime::equals(dt1, dt2);
+                    return Ok(Rc::new(SystemDateTime::equals(dt1, dt2)));
                 }
             },
             SystemType::Time(t1) => {
                 if let SystemType::Time(t2) = rhs {
-                    return SystemTime::equals(t1, t2);
+                    return Ok(Rc::new(SystemTime::equals(t1, t2)));
                 }
             },
             SystemType::Number(n1) => {
                 if let SystemType::Number(n2) = rhs {
                     let b = *n1 == *n2;
-                    return SystemType::Boolean(b);
+                    return Ok(Rc::new(SystemType::Boolean(b)));
                 }
             },
             SystemType::Quantity(q1) => {
                 if let SystemType::Quantity(q2) = rhs {
-                    return SystemQuantity::equals(q1,q2);
+                    return Ok(Rc::new(SystemQuantity::equals(q1,q2)));
                 }
             },
             SystemType::Element(e1) => {
                 if let SystemType::Element(e2) = rhs {
-                    let b = element_utils::eq(e1, e2);
-                    if let Err(b) = b {
-                        warn!("error while comparing equality on two Elements, undefined will be returned. {}", b.to_string());
-                    }
-                    else {
-                        return SystemType::Boolean(b.unwrap());
-                    }
+                    let b = element_utils::eq(e1, e2)?;
+                    return Ok(Rc::new(SystemType::Boolean(b)));
                 }
             },
             SystemType::Collection(c1) => {
                 if let SystemType::Collection(c2) = rhs {
                     if c1.len() != c2.len() {
-                        return SystemType::Boolean(false);
+                        return Ok(Rc::new(SystemType::Boolean(false)));
                     }
                     for (i, lst) in c1.iter().enumerate() {
                         let rst = c2.val.as_ref().unwrap().get(i);
                         if let Some(rst) = rst {
-                            let b = lst.eq(rst);
-                            if !b {
-                                return SystemType::Boolean(b);
+                            let b = SystemType::equals(Rc::clone(lst), Rc::clone(rst))?;
+                            if !b.is_truthy() {
+                                return Ok(b);
                             }
                         }
                         else {
-                            return SystemType::Boolean(false);
+                            return Ok(Rc::new(SystemType::Boolean(false)));
                         }
                     }
+
+                    return Ok(Rc::new(SystemType::Boolean(true)));
                 }
-            },
-            _ => {
             }
         }
 
-        SystemType::Collection(Collection::new_empty())
+        Ok(Rc::new(SystemType::Collection(Collection::new_empty())))
     }
 
-    pub fn not_equals(lhs: &SystemType, rhs: &SystemType) -> SystemType<'b> {
-        let r = SystemType::equals(lhs, rhs);
+    #[inline]
+    fn unpack_singleton_base(base: Rc<SystemType<'b>>, is_lhs: bool) -> EvalResult<'b> {
+        if let SystemType::Collection(c) = base.borrow() {
+            if let Some(v) = c.get_if_singleton() {
+                return Ok(v);
+            }
+        }
+
+        let orientation = if is_lhs { "lhs" } else { "rhs" };
+        Err(EvalError::new(format!("cannot compare, {} is not a singleton, use where function instead", orientation)))
+    }
+
+    pub fn not_equals(lhs: Rc<SystemType<'b>>, rhs: Rc<SystemType<'b>>) -> EvalResult<'b> {
+        let r = SystemType::equals(lhs, rhs)?;
         if r.is_empty() {
-            return r;
+            return Ok(r);
         }
 
         let b = r.as_bool().unwrap();
-        SystemType::Boolean(!b)
+        Ok(Rc::new(SystemType::Boolean(!b)))
     }
 }
 
@@ -645,6 +669,8 @@ impl<'b> PartialEq for SystemType<'b> {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+    use anyhow::Error;
     use bson::spec::ElementType;
     use rawbson::elem::Element;
     use serde_json::Value;
@@ -652,28 +678,30 @@ mod tests {
     use crate::utils::test_utils::{read_patient, to_docbuf, update};
 
     #[test]
-    fn test_equality() {
+    fn test_equality() -> Result<(), Error> {
         let mut p_json = read_patient();
         let p1 = to_docbuf(&p_json);
         let p1 = Element::new(ElementType::EmbeddedDocument, p1.as_bytes());
         let p2 = to_docbuf(&p_json.clone());
         let p2 = Element::new(ElementType::EmbeddedDocument, p2.as_bytes());
 
-        let st1 = SystemType::Element(p1);
-        let st2 = SystemType::Element(p2);
-        let r = SystemType::equals(&st1, &st2);
+        let st1 = Rc::new(SystemType::Element(p1));
+        let st2 = Rc::new(SystemType::Element(p2));
+        let r = SystemType::equals(Rc::clone(&st1), st2)?;
         assert_eq!(true, r.as_bool().unwrap());
 
         update(&mut p_json, "/name/given", Value::String(String::from("Peacock")));
         let p2 = to_docbuf(&p_json);
         let p2 = Element::new(ElementType::EmbeddedDocument, p2.as_bytes());
-        let st2 = SystemType::Element(p2);
-        let r = SystemType::equals(&st1, &st2);
+        let st2 = Rc::new(SystemType::Element(p2));
+        let r = SystemType::equals(st1, st2)?;
         assert_eq!(false, r.as_bool().unwrap());
+
+        Ok(())
     }
 
     #[test]
-    fn test_system_quantity_equality() {
+    fn test_system_quantity_equality() -> Result<(), Error> {
         let lhs = SystemQuantity::new(1.0, String::from("second"));
         let rhs = SystemQuantity::new(1.0, String::from("s"));
         assert!(SystemQuantity::equals(&lhs, &rhs).as_bool().unwrap());
@@ -685,5 +713,7 @@ mod tests {
         let lhs = SystemQuantity::new(1.0, String::from("year"));
         let rhs = SystemQuantity::new(1.0, String::from("a"));
         assert_eq!(false, SystemQuantity::equals(&lhs, &rhs).as_bool().unwrap());
+
+        Ok(())
     }
 }
