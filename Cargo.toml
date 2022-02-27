@@ -32,4 +32,4 @@ uuid = {version = "0.8.2", features = ["v4"]}
 clap = "3.0.14"
 rayon = "1.5.1"
 regex = "1.5.4"
-#unicase = "2.6.0"
+unicase = "2.6.0"
