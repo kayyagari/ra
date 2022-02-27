@@ -88,6 +88,12 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
             NotEqual => {
                 SystemType::not_equals(lhs, rhs)
             },
+            Equivalent => {
+              SystemType::equiv(lhs, rhs)
+            },
+            NotEquivalent => {
+              SystemType::not_equiv(lhs, rhs)
+            },
             Greater => {
                 lhs.gt(&rhs)
             },
@@ -199,13 +205,5 @@ mod tests {
         let result = eval(&e, Rc::clone(&doc_base));
         assert!(result.is_ok());
         assert_eq!(false, result.unwrap().as_bool().unwrap());
-    }
-
-    #[test]
-    fn test_compare_empty_collection() {
-        let lhs = SystemType::Collection(Collection::new_empty());
-        let rhs = SystemType::Collection(Collection::new_empty());
-        let r = simple_compare(Rc::new(lhs), Rc::new(rhs), &Operator::Equal).unwrap();
-        assert_eq!(true, r.is_empty());
     }
 }

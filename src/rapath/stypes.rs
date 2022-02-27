@@ -2,13 +2,13 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::ops::Add;
-use std::ptr::eq;
 use std::rc::Rc;
 
 use chrono::{DateTime, NaiveTime, Utc};
 use log::warn;
 use rawbson::elem::Element;
 use serde_json::ser::Formatter;
+use unicase::UniCase;
 
 use crate::errors::{EvalError, ParseError};
 use crate::rapath::stypes::N::{Decimal, Integer};
@@ -71,8 +71,13 @@ impl SystemDateTime {
         if lhs.precision != rhs.precision {
             return SystemType::Collection(Collection::new_empty());
         }
-        let b = lhs.val.eq(&rhs.val);
+        let b = lhs.val == rhs.val;
         SystemType::Boolean(b)
+    }
+
+    pub fn equiv(lhs: &SystemDateTime, rhs: &SystemDateTime) -> bool {
+        // no check on precision while evaluating equivalence
+        lhs.val == rhs.val
     }
 }
 
@@ -95,8 +100,13 @@ impl SystemTime {
         if lhs.precision != rhs.precision {
             return SystemType::Collection(Collection::new_empty());
         }
-        let b = lhs.val.eq(&rhs.val);
+        let b = lhs.val == rhs.val;
         SystemType::Boolean(b)
+    }
+
+    pub fn equiv(lhs: &SystemTime, rhs: &SystemTime) -> bool {
+        // no check on precision while evaluating equivalence
+        lhs.val == rhs.val
     }
 }
 
@@ -127,6 +137,20 @@ impl SystemQuantity {
     pub fn equals<'b>(lhs: &SystemQuantity, rhs: &SystemQuantity) -> SystemType<'b> {
         let b = lhs.unit == rhs.unit && lhs.val == rhs.val;
         SystemType::Boolean(b)
+    }
+
+    pub fn equiv(lhs: &SystemQuantity, rhs: &SystemQuantity) -> bool {
+        let mut b = false;
+        if lhs.cal_unit {
+            let lunit = *CALENDAR_UNIT_ALIAS.get(lhs.unit.as_str()).unwrap();
+            let runit = *CALENDAR_UNIT_ALIAS.get(rhs.unit.as_str()).unwrap();
+            b = lunit == runit && lhs.val == rhs.val;
+        }
+        else {
+            b = lhs.unit == rhs.unit && lhs.val == rhs.val;
+        }
+
+        b
     }
 }
 
@@ -159,6 +183,13 @@ impl<'b> SystemString<'b> {
     #[inline]
     pub fn len(&self) -> usize {
         self.as_str().len()
+    }
+
+    pub fn equiv(lhs: &SystemString, rhs: &SystemString) -> bool {
+        let lhs: UniCase<&str> = UniCase::from(lhs.as_str());
+        let rhs: UniCase<&str> = UniCase::from(rhs.as_str());
+
+        lhs == rhs
     }
 }
 
@@ -592,7 +623,7 @@ impl<'b> SystemType<'b> {
             },
             SystemType::Element(e1) => {
                 if let SystemType::Element(e2) = rhs {
-                    let b = element_utils::eq(e1, e2)?;
+                    let b = element_utils::equals(e1, e2)?;
                     return Ok(Rc::new(SystemType::Boolean(b)));
                 }
             },
@@ -643,6 +674,104 @@ impl<'b> SystemType<'b> {
         let b = r.as_bool().unwrap();
         Ok(Rc::new(SystemType::Boolean(!b)))
     }
+
+    pub fn equiv(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>) -> EvalResult<'b> {
+        //println!("lhs = {}, rhs = {}", self.get_type(), other.get_type());
+
+        let le = lhs.is_empty();
+        let re = rhs.is_empty();
+        if le && re {
+            return Ok(Rc::new(SystemType::Boolean(true)));
+        } else if le || re {
+            return Ok(Rc::new(SystemType::Boolean(false)));
+        }
+
+        let lhs = lhs.borrow();
+        let rhs = rhs.borrow();
+
+        let mut equivalent = false;
+        match lhs {
+            SystemType::Boolean(b1) => {
+                if let SystemType::Boolean(b2) = rhs {
+                    equivalent = *b1 == *b2;
+                }
+            },
+            SystemType::String(s1) => {
+                if let SystemType::String(s2) = rhs {
+                    equivalent = SystemString::equiv(s1, s2);
+                }
+            },
+            SystemType::DateTime(dt1) => {
+                if let SystemType::DateTime(dt2) = rhs {
+                    equivalent = SystemDateTime::equiv(dt1, dt2);
+                }
+            },
+            SystemType::Time(t1) => {
+                if let SystemType::Time(t2) = rhs {
+                    equivalent = SystemTime::equiv(t1, t2);
+                }
+            },
+            SystemType::Number(n1) => {
+                if let SystemType::Number(n2) = rhs {
+                    equivalent = *n1 == *n2;
+                }
+            },
+            SystemType::Quantity(q1) => {
+                if let SystemType::Quantity(q2) = rhs {
+                    equivalent = SystemQuantity::equiv(q1,q2);
+                }
+            },
+            SystemType::Element(e1) => {
+                if let SystemType::Element(e2) = rhs {
+                    // even for equivalence equals() is called
+                    // for two reasons
+                    // 1. rawbson Arrays are not indexed
+                    // 2. two Array "Element"s may never be compared through fhirpath, array is always converted into a collection
+                    equivalent = element_utils::equals(e1, e2)?;
+                }
+            },
+            SystemType::Collection(c1) => {
+                if let SystemType::Collection(c2) = rhs {
+                    let c2_len = c2.len();
+                    if c1.len() == c2_len {
+                        let c2_inner_vec = c2.val.as_ref().unwrap();
+                        let expected_total_from_rhs = (c2_len * (c2_len + 1)) / 2;
+                        let mut rhs_match_hits = 0; // sum of all indices (starting from 1)
+                        'outer:
+                        for (i, lst) in c1.iter().enumerate() {
+                            let mut peer_found = false;
+                            'inner:
+                            for j in 0..c2_len {
+                                let rst = &c2_inner_vec[j];
+                                let b = SystemType::equiv(Rc::clone(lst), Rc::clone(rst))?.as_bool()?;
+                                if b {
+                                    rhs_match_hits += j + 1;
+                                    peer_found = true;
+                                    break 'inner;
+                                }
+                            }
+
+                            if !peer_found {
+                                break 'outer;
+                            }
+                        }
+
+                        if rhs_match_hits == expected_total_from_rhs {
+                            equivalent = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Rc::new(SystemType::Boolean(equivalent)))
+    }
+
+    pub fn not_equiv(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>) -> EvalResult<'b> {
+        let b = SystemType::equiv(lhs, rhs)?;
+        let b = b.as_bool().unwrap();
+        Ok(Rc::new(SystemType::Boolean(!b)))
+    }
 }
 
 impl Eq for SystemQuantity {}
@@ -674,7 +803,7 @@ mod tests {
     use bson::spec::ElementType;
     use rawbson::elem::Element;
     use serde_json::Value;
-    use crate::rapath::stypes::{Collection, SystemDateTime, SystemQuantity, SystemType};
+    use crate::rapath::stypes::{Collection, SystemDateTime, SystemNumber, SystemQuantity, SystemString, SystemType};
     use crate::utils::test_utils::{read_patient, to_docbuf, update};
 
     #[test]
@@ -715,5 +844,55 @@ mod tests {
         assert_eq!(false, SystemQuantity::equals(&lhs, &rhs).as_bool().unwrap());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_compare_empty_collection() {
+        let lhs = SystemType::Collection(Collection::new_empty());
+        let rhs = SystemType::Collection(Collection::new_empty());
+        let r = SystemType::equals(Rc::new(lhs), Rc::new(rhs)).unwrap();
+        assert_eq!(true, r.is_empty());
+    }
+
+    #[test]
+    fn test_equivalence() {
+        let lhs = SystemQuantity::new(1.0, String::from("year"));
+        let rhs = SystemQuantity::new(1.0, String::from("a"));
+        assert!(SystemQuantity::equiv(&lhs, &rhs));
+
+        let lhs = SystemQuantity::new(1.0, String::from("second"));
+        let rhs = SystemQuantity::new(1.0, String::from("s"));
+        assert!(SystemQuantity::equiv(&lhs, &rhs));
+
+        let lhs = SystemString::from_slice("α is alpha, β is beta");
+        let rhs = SystemString::from_slice("α is ALPHA, β is beta");
+        assert!(SystemString::equiv(&lhs, &rhs));
+
+        let lhs = SystemString::from_slice("नमस्ते");
+        let rhs = SystemString::from_slice("नमस्ते");
+        assert!(SystemString::equiv(&lhs, &rhs));
+
+        let mut lhs = Collection::new();
+        lhs.push(Rc::new(SystemType::Number(SystemNumber::new_integer(11))));
+        lhs.push(Rc::new(SystemType::Number(SystemNumber::new_integer(9))));
+
+        // order reversed in RHS
+        let mut rhs = Collection::new();
+        rhs.push(Rc::new(SystemType::Number(SystemNumber::new_integer(9))));
+        rhs.push(Rc::new(SystemType::Number(SystemNumber::new_integer(11))));
+
+        let lhs = Rc::new(SystemType::Collection(lhs));
+        let rhs = Rc::new(SystemType::Collection(rhs));
+        let r = SystemType::equals(Rc::clone(&lhs), Rc::clone(&rhs)).unwrap();
+        assert_eq!(false, r.as_bool().unwrap());
+
+        let r = SystemType::not_equals(Rc::clone(&lhs), Rc::clone(&rhs)).unwrap();
+        assert_eq!(true, r.as_bool().unwrap());
+
+        let r = SystemType::equiv(Rc::clone(&lhs), Rc::clone(&rhs)).unwrap();
+        assert_eq!(true, r.as_bool().unwrap());
+
+        let r = SystemType::not_equiv(Rc::clone(&lhs), Rc::clone(&rhs)).unwrap();
+        assert_eq!(false, r.as_bool().unwrap());
     }
 }

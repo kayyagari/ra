@@ -165,7 +165,7 @@ pub fn eval_path<'a, 'b>(name: &'a String, base: Rc<SystemType<'b>>) -> EvalResu
     }
 }
 
-pub fn eq(lhs: &Element, rhs: &Element) -> Result<bool, RawError>  {
+pub fn equals(lhs: &Element, rhs: &Element) -> Result<bool, RawError>  {
     let ltype = lhs.element_type();
     let rtype = rhs.element_type();
     if ltype != rtype {
@@ -222,7 +222,7 @@ pub fn eq(lhs: &Element, rhs: &Element) -> Result<bool, RawError>  {
                 if let None = re {
                     return Ok(false);
                 }
-                let b = eq(&e, re.as_ref().unwrap())?;
+                let b = equals(&e, re.as_ref().unwrap())?;
                 if !b {
                     return Ok(false);
                 }
@@ -238,7 +238,7 @@ pub fn eq(lhs: &Element, rhs: &Element) -> Result<bool, RawError>  {
                 let le = litem?;
                 if let Some(re) = riter.next() {
                     let re = re?;
-                    let b = eq(&le, &re)?;
+                    let b = equals(&le, &re)?;
                     if !b {
                         return Ok(false);
                     }

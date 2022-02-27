@@ -76,15 +76,16 @@ lazy_static! {
         units.insert("year", "year");
 
         // the below mappings are for UCUM codes for the same calenda units
-        // the below are not used by the scanner but by the SystemQuantity::new() method
-        units.insert("a", "a");
-        units.insert("mo", "mo");
-        units.insert("wk", "wk");
-        units.insert("d", "d");
-        units.insert("h", "h");
-        units.insert("min", "min");
-        units.insert("s", "s");
-        units.insert("ms", "ms");
+        // the below are not used by the scanner but by the SystemQuantity::new() and
+        // SystemQuantity::equiv() methods
+        units.insert("a", "year");
+        units.insert("mo", "month");
+        units.insert("wk", "week");
+        units.insert("d", "day");
+        units.insert("h", "hour");
+        units.insert("min", "minute");
+        units.insert("s", "second");
+        units.insert("ms", "millisecond");
         units
     };
     static ref TIME_RE: Regex = Regex::new(r"^(\d{2}(:\d{2}(:\d{2}(\.\d{3})?)?)?)$").unwrap();
