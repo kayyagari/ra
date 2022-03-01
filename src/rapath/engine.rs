@@ -95,7 +95,7 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
               SystemType::not_equiv(lhs, rhs)
             },
             Greater => {
-                lhs.gt(&rhs)
+                SystemType::gt(lhs, rhs)
             },
             _ => {
                 Err(EvalError::new(format!("unsupported comparison operation {:?}", op)))
