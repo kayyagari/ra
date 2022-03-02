@@ -90,6 +90,33 @@ impl SystemDateTime {
         let b = lhs.val > rhs.val;
         SystemType::Boolean(b)
     }
+
+    #[inline]
+    pub fn ge<'b>(lhs: &SystemDateTime, rhs: &SystemDateTime) -> SystemType<'b> {
+        if lhs.precision != rhs.precision {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val >= rhs.val;
+        SystemType::Boolean(b)
+    }
+
+    #[inline]
+    pub fn lt<'b>(lhs: &SystemDateTime, rhs: &SystemDateTime) -> SystemType<'b> {
+        if lhs.precision != rhs.precision {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val < rhs.val;
+        SystemType::Boolean(b)
+    }
+
+    #[inline]
+    pub fn le<'b>(lhs: &SystemDateTime, rhs: &SystemDateTime) -> SystemType<'b> {
+        if lhs.precision != rhs.precision {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val <= rhs.val;
+        SystemType::Boolean(b)
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialOrd, PartialEq)]
@@ -127,6 +154,33 @@ impl SystemTime {
             return SystemType::Collection(Collection::new_empty());
         }
         let b = lhs.val > rhs.val;
+        SystemType::Boolean(b)
+    }
+
+    #[inline]
+    pub fn ge<'b>(lhs: &SystemTime, rhs: &SystemTime) -> SystemType<'b> {
+        if lhs.precision != rhs.precision {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val >= rhs.val;
+        SystemType::Boolean(b)
+    }
+
+    #[inline]
+    pub fn lt<'b>(lhs: &SystemTime, rhs: &SystemTime) -> SystemType<'b> {
+        if lhs.precision != rhs.precision {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val < rhs.val;
+        SystemType::Boolean(b)
+    }
+
+    #[inline]
+    pub fn le<'b>(lhs: &SystemTime, rhs: &SystemTime) -> SystemType<'b> {
+        if lhs.precision != rhs.precision {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val <= rhs.val;
         SystemType::Boolean(b)
     }
 }
@@ -176,17 +230,37 @@ impl SystemQuantity {
 
     #[inline]
     pub fn gt<'b>(lhs: &SystemQuantity, rhs: &SystemQuantity) -> SystemType<'b> {
-        let b;
-        if lhs.cal_unit {
-            if lhs.unit != rhs.unit {
-                return SystemType::Collection(Collection::new_empty());
-            }
-            b = lhs.val > rhs.val;
+        if lhs.unit != rhs.unit {
+            return SystemType::Collection(Collection::new_empty());
         }
-        else {
-            b = lhs.unit == rhs.unit && lhs.val > rhs.val;
-        }
+        let b = lhs.val > rhs.val;
+        SystemType::Boolean(b)
+    }
 
+    #[inline]
+    pub fn ge<'b>(lhs: &SystemQuantity, rhs: &SystemQuantity) -> SystemType<'b> {
+        if lhs.unit != rhs.unit {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val >= rhs.val;
+        SystemType::Boolean(b)
+    }
+
+    #[inline]
+    pub fn lt<'b>(lhs: &SystemQuantity, rhs: &SystemQuantity) -> SystemType<'b> {
+        if lhs.unit != rhs.unit {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val < rhs.val;
+        SystemType::Boolean(b)
+    }
+
+    #[inline]
+    pub fn le<'b>(lhs: &SystemQuantity, rhs: &SystemQuantity) -> SystemType<'b> {
+        if lhs.unit != rhs.unit {
+            return SystemType::Collection(Collection::new_empty());
+        }
+        let b = lhs.val <= rhs.val;
         SystemType::Boolean(b)
     }
 }
@@ -890,6 +964,187 @@ impl<'b> SystemType<'b> {
 
         Ok(Rc::new(gt))
     }
+
+    pub fn ge(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>) -> EvalResult<'b> {
+        if lhs.is_empty() {
+            return Ok(lhs);
+        }
+        else if rhs.is_empty() {
+            return Ok(rhs);
+        }
+
+        if lhs.get_type() != rhs.get_type() {
+            return Err(EvalError::new(format!("cannot apply >= on incompatible types {} and {}", lhs.get_type(), rhs.get_type())));
+        }
+
+        let lhs = lhs.borrow();
+        let rhs = rhs.borrow();
+        let mut ge = SystemType::Boolean(false);
+        match lhs {
+            SystemType::String(s1) => {
+                if let SystemType::String(s2) = rhs {
+                    ge = SystemType::Boolean(SystemString::ge(s1, s2));
+                }
+            },
+            SystemType::Number(n1) => {
+                if let SystemType::Number(n2) = rhs {
+                    ge = SystemType::Boolean(n1 >= n2);
+                }
+            },
+            SystemType::Quantity(sq1) => {
+                if let SystemType::Quantity(sq2) = rhs {
+                    ge = SystemQuantity::ge(sq1, sq2);
+                }
+            }
+            SystemType::Time(t1) => {
+                if let SystemType::Time(t2) = rhs {
+                    ge = SystemTime::ge(t1, t2);
+                }
+            },
+            SystemType::DateTime(dt1) => {
+                if let SystemType::DateTime(dt2) = rhs {
+                    ge = SystemDateTime::ge(dt1, dt2);
+                }
+            },
+            SystemType::Collection(c1) => {
+                if let SystemType::Collection(c2) = rhs {
+                    if c1.len() != 1 && c2.len() != 1 {
+                        return Err(EvalError::new(String::from(">= can only be applied on singleton collections")));
+                    }
+
+                    let lhs = c1.val.as_ref().unwrap().into_iter().next().unwrap();
+                    let rhs = c2.val.as_ref().unwrap().into_iter().next().unwrap();
+                    return SystemType::ge(Rc::clone(lhs), Rc::clone(rhs));
+                }
+            },
+            st => {
+                return Err(EvalError::new(format!(">= cannot be applied on operands of type {}", lhs.get_type())));
+            }
+        }
+
+        Ok(Rc::new(ge))
+    }
+
+    pub fn lt(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>) -> EvalResult<'b> {
+        if lhs.is_empty() {
+            return Ok(lhs);
+        }
+        else if rhs.is_empty() {
+            return Ok(rhs);
+        }
+
+        if lhs.get_type() != rhs.get_type() {
+            return Err(EvalError::new(format!("cannot apply < on incompatible types {} and {}", lhs.get_type(), rhs.get_type())));
+        }
+
+        let lhs = lhs.borrow();
+        let rhs = rhs.borrow();
+        let mut lt = SystemType::Boolean(false);
+        match lhs {
+            SystemType::String(s1) => {
+                if let SystemType::String(s2) = rhs {
+                    lt = SystemType::Boolean(SystemString::lt(s1, s2));
+                }
+            },
+            SystemType::Number(n1) => {
+                if let SystemType::Number(n2) = rhs {
+                    lt = SystemType::Boolean(n1 < n2);
+                }
+            },
+            SystemType::Quantity(sq1) => {
+                if let SystemType::Quantity(sq2) = rhs {
+                    lt = SystemQuantity::lt(sq1, sq2);
+                }
+            }
+            SystemType::Time(t1) => {
+                if let SystemType::Time(t2) = rhs {
+                    lt = SystemTime::lt(t1, t2);
+                }
+            },
+            SystemType::DateTime(dt1) => {
+                if let SystemType::DateTime(dt2) = rhs {
+                    lt = SystemDateTime::lt(dt1, dt2);
+                }
+            },
+            SystemType::Collection(c1) => {
+                if let SystemType::Collection(c2) = rhs {
+                    if c1.len() != 1 && c2.len() != 1 {
+                        return Err(EvalError::new(String::from("< can only be applied on singleton collections")));
+                    }
+
+                    let lhs = c1.val.as_ref().unwrap().into_iter().next().unwrap();
+                    let rhs = c2.val.as_ref().unwrap().into_iter().next().unwrap();
+                    return SystemType::lt(Rc::clone(lhs), Rc::clone(rhs));
+                }
+            },
+            st => {
+                return Err(EvalError::new(format!("< cannot be applied on operands of type {}", lhs.get_type())));
+            }
+        }
+
+        Ok(Rc::new(lt))
+    }
+
+    pub fn le(mut lhs: Rc<SystemType<'b>>, mut rhs: Rc<SystemType<'b>>) -> EvalResult<'b> {
+        if lhs.is_empty() {
+            return Ok(lhs);
+        }
+        else if rhs.is_empty() {
+            return Ok(rhs);
+        }
+
+        if lhs.get_type() != rhs.get_type() {
+            return Err(EvalError::new(format!("cannot apply <= on incompatible types {} and {}", lhs.get_type(), rhs.get_type())));
+        }
+
+        let lhs = lhs.borrow();
+        let rhs = rhs.borrow();
+        let mut le = SystemType::Boolean(false);
+        match lhs {
+            SystemType::String(s1) => {
+                if let SystemType::String(s2) = rhs {
+                    le = SystemType::Boolean(SystemString::le(s1, s2));
+                }
+            },
+            SystemType::Number(n1) => {
+                if let SystemType::Number(n2) = rhs {
+                    le = SystemType::Boolean(n1 <= n2);
+                }
+            },
+            SystemType::Quantity(sq1) => {
+                if let SystemType::Quantity(sq2) = rhs {
+                    le = SystemQuantity::le(sq1, sq2);
+                }
+            }
+            SystemType::Time(t1) => {
+                if let SystemType::Time(t2) = rhs {
+                    le = SystemTime::le(t1, t2);
+                }
+            },
+            SystemType::DateTime(dt1) => {
+                if let SystemType::DateTime(dt2) = rhs {
+                    le = SystemDateTime::le(dt1, dt2);
+                }
+            },
+            SystemType::Collection(c1) => {
+                if let SystemType::Collection(c2) = rhs {
+                    if c1.len() != 1 && c2.len() != 1 {
+                        return Err(EvalError::new(String::from("< can only be applied on singleton collections")));
+                    }
+
+                    let lhs = c1.val.as_ref().unwrap().into_iter().next().unwrap();
+                    let rhs = c2.val.as_ref().unwrap().into_iter().next().unwrap();
+                    return SystemType::le(Rc::clone(lhs), Rc::clone(rhs));
+                }
+            },
+            st => {
+                return Err(EvalError::new(format!("<= cannot be applied on operands of type {}", lhs.get_type())));
+            }
+        }
+
+        Ok(Rc::new(le))
+    }
+
 }
 
 impl Eq for SystemQuantity {}
@@ -1018,32 +1273,39 @@ mod tests {
     #[test]
     fn test_comparison() {
         let mut candidates = Vec::new();
-        // (SystemType, SystemType,outcome)
+        // (SystemType, SystemType,[4; outcome])
         // outcome: i32 => 1=true, 0=false, -1=empty
-        candidates.push((SystemType::String(SystemString::from_slice("abc")), SystemType::String(SystemString::from_slice("ABC")), 1));
-        candidates.push((SystemType::Number(SystemNumber::new_integer(2)), SystemType::Number(SystemNumber::new_integer(5)), 0));
-        candidates.push((SystemType::Collection(Collection::new_empty()), SystemType::Number(SystemNumber::new_integer(5)), -1));
+        candidates.push((SystemType::String(SystemString::from_slice("abc")), SystemType::String(SystemString::from_slice("ABC")), [1, 1, 0, 0]));
+        candidates.push((SystemType::Number(SystemNumber::new_integer(2)), SystemType::Number(SystemNumber::new_integer(5)), [0, 0, 1, 1]));
+        candidates.push((SystemType::Collection(Collection::new_empty()), SystemType::Number(SystemNumber::new_integer(5)), [-1, -1, -1, -1]));
 
         let mut lhs_col = Collection::new();
         lhs_col.push(Rc::new(SystemType::Number(SystemNumber::new_integer(5))));
         let mut rhs_col = Collection::new();
         rhs_col.push(Rc::new(SystemType::Number(SystemNumber::new_integer(2))));
-        candidates.push((SystemType::Collection(lhs_col), SystemType::Collection(rhs_col), 1));
+        candidates.push((SystemType::Collection(lhs_col), SystemType::Collection(rhs_col), [1, 1, 0, 0]));
 
-        candidates.push((SystemType::Quantity(SystemQuantity::new(1.0, String::from("year"))), SystemType::Quantity(SystemQuantity::new(1.0, String::from("a"))), -1));
-        candidates.push((SystemType::Quantity(SystemQuantity::new(2.0, String::from("second"))), SystemType::Quantity(SystemQuantity::new(1.0, String::from("s"))), 1));
+        candidates.push((SystemType::Quantity(SystemQuantity::new(1.0, String::from("year"))), SystemType::Quantity(SystemQuantity::new(1.0, String::from("a"))), [-1, -1, -1, -1]));
+        candidates.push((SystemType::Quantity(SystemQuantity::new(2.0, String::from("second"))), SystemType::Quantity(SystemQuantity::new(1.0, String::from("s"))), [1, 1, 0, 0]));
 
-        candidates.push((SystemType::DateTime(SystemDateTime::new(Utc::now(), 63)), SystemType::DateTime(SystemDateTime::new(Utc::now(), 63)), 0));
-        candidates.push((SystemType::DateTime(SystemDateTime::new(Utc::now(), 63)), SystemType::DateTime(SystemDateTime::new(Utc::now(), 32)), -1));
-        candidates.push((SystemType::Time(SystemTime::new(NaiveTime::from_hms(11, 0, 0), 7)), SystemType::Time(SystemTime::new(NaiveTime::from_hms(11, 0, 0), 7)), 0));
+        candidates.push((SystemType::DateTime(SystemDateTime::new(Utc::now(), 63)), SystemType::DateTime(SystemDateTime::new(Utc::now(), 63)), [0, 0, 1, 1]));
+        candidates.push((SystemType::DateTime(SystemDateTime::new(Utc::now(), 63)), SystemType::DateTime(SystemDateTime::new(Utc::now(), 32)), [-1, -1, -1, -1]));
+        candidates.push((SystemType::Time(SystemTime::new(NaiveTime::from_hms(11, 0, 0), 7)), SystemType::Time(SystemTime::new(NaiveTime::from_hms(11, 0, 0), 7)), [0, 1, 0, 1]));
+
         for (lhs, rhs, outcome) in candidates {
-            let r = SystemType::gt(Rc::new(lhs), Rc::new(rhs)).unwrap();
-            match outcome {
-                -1 => assert!(r.is_empty()),
-                1 => assert_eq!(true, r.as_bool().unwrap()),
-                0 => assert_eq!(false, r.as_bool().unwrap()),
-                _ => {
-                    assert!(false, "invalid input, unknown outcome")
+            let comparators = [SystemType::gt, SystemType::ge, SystemType::lt, SystemType::le];
+            let lhs = Rc::new(lhs);
+            let rhs = Rc::new(rhs);
+            for (i, f) in comparators.into_iter().enumerate() {
+                println!("evaluating {} function with lhs {:?} and rhs {:?}", i+1, lhs, rhs);
+                let r = f(Rc::clone(&lhs), Rc::clone(&rhs)).unwrap();
+                match outcome[i] {
+                    -1 => assert!(r.is_empty()),
+                    1 => assert_eq!(true, r.as_bool().unwrap()),
+                    0 => assert_eq!(false, r.as_bool().unwrap()),
+                    _ => {
+                        assert!(false, "invalid input, unknown outcome")
+                    }
                 }
             }
         }

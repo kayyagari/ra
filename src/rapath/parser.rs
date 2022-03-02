@@ -165,12 +165,19 @@ impl<'a> Parser<'a> {
                     op: Operator::Plus
                 })
             },
-            GREATER => {
+            GREATER | GREATER_EQUAL | LESS | LESS_EQUAL => {
+                let op = match t {
+                    GREATER => Operator::Greater,
+                    GREATER_EQUAL => Operator::GreaterEqual,
+                    LESS => Operator::Less,
+                    LESS_EQUAL => Operator::LessEqual,
+                    _ => Operator::Greater // never happens, but to keep compiler happy
+                };
                 let rhs = self.expression(t.lbp())?;
                 Ok(Ast::Binary {
                     lhs: left,
                     rhs: Box::new(rhs),
-                    op: Operator::Greater
+                    op
                 })
             },
             LEFT_PAREN => match *left {
@@ -300,47 +307,26 @@ mod tests {
     use crate::rapath::parser::parse;
     use crate::rapath::scanner::{scan_tokens, Token};
 
-    struct ExprCandidate<'a> {
-        e: &'a str,
-        valid: bool
-    }
-
     #[test]
     fn test_simple_expr() {
         let mut xprs = vec!();
-        let x1 = ExprCandidate{e: "1+1", valid: true};
-        xprs.push(x1);
+        xprs.push(("1+1", true));
+        xprs.push(("1+1 and 0 + 6", true));
+        xprs.push(("(1+1)", true));
+        xprs.push(("Patient.name.first(1+1)", true));
+        xprs.push(("+1", true));
+        xprs.push(("-1", true));
+        xprs.push(("1-", false));
+        xprs.push(("1 > 1", true));
+        xprs.push(("1 >= 1", true));
+        xprs.push(("1 < 1", true));
+        xprs.push(("1 <= 1", true));
 
-        let x2 = ExprCandidate{e: "1+1 and 0 + 6", valid: true};
-        xprs.push(x2);
-
-        let x3 = ExprCandidate{e: "(1+1)", valid: true};
-        xprs.push(x3);
-
-        let x4 = ExprCandidate{e: "Patient.name.first(1+1)", valid: true};
-        xprs.push(x4);
-
-        let x5 = ExprCandidate{e: "+1", valid: true};
-        xprs.push(x5);
-
-        let x6 = ExprCandidate{e: "-1", valid: true};
-        xprs.push(x6);
-
-        let x6 = ExprCandidate{e: "1-", valid: false};
-        xprs.push(x6);
-
-        for x in xprs {
-            let tokens = scan_tokens(&String::from(x.e)).unwrap();
+        for (expr, expected) in xprs {
+            let tokens = scan_tokens(expr).unwrap();
             // println!("{:?}", &tokens);
             let result = parse(tokens);
-            if x.valid {
-                assert!(result.is_ok());
-                // println!("{:?}", result.unwrap());
-            }
-            else {
-                println!("{:?}", result.as_ref().err().unwrap());
-                assert!(!x.valid);
-            }
+            assert_eq!(expected, result.is_ok());
         }
     }
 }

@@ -97,6 +97,15 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
             Greater => {
                 SystemType::gt(lhs, rhs)
             },
+            GreaterEqual => {
+                SystemType::ge(lhs, rhs)
+            },
+            Less => {
+              SystemType::lt(lhs, rhs)
+            },
+            LessEqual => {
+              SystemType::le(lhs, rhs)
+            },
             _ => {
                 Err(EvalError::new(format!("unsupported comparison operation {:?}", op)))
             }
@@ -205,5 +214,72 @@ mod tests {
         let result = eval(&e, Rc::clone(&doc_base));
         assert!(result.is_ok());
         assert_eq!(false, result.unwrap().as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_comparison() {
+        let mut exprs = Vec::new();
+        exprs.push(("1 > 0", true));
+        exprs.push(("1 >= 1", true));
+        exprs.push(("0 < 1", true));
+        exprs.push(("1 <= 1", true));
+        exprs.push(("2 <= 1", false));
+        exprs.push(("10 > 5", true));
+        exprs.push(("10 < 5", false));
+        exprs.push(("10 >= 5", true));
+        exprs.push(("10 <= 5", false));
+        exprs.push(("10 <= 5.0", false));
+        exprs.push(("'abc' > 'ABC'", true));
+        exprs.push(("'abc' >= 'ABC'", true));
+        exprs.push(("'abc' < 'ABC'", false));
+        exprs.push(("'abc' <= 'ABC'", false));
+        exprs.push(("@2018-03-01 > @2018-01-01", true));
+        exprs.push(("@2018-03-01 < @2018-01-01", false));
+        exprs.push(("@2018-03-01 >= @2018-01-01", true));
+        exprs.push(("@2018-03-01 <= @2018-01-01", false));
+        exprs.push(("@2018-03-01T10:30:00 > @2018-03-01T10:00:00", true));
+        exprs.push(("@2018-03-01T10:30:00 >= @2018-03-01T10:00:00", true));
+        exprs.push(("@2018-03-01T10:30:00 < @2018-03-01T10:00:00", false));
+        exprs.push(("@2018-03-01T10:30:00 <= @2018-03-01T10:30:00.000", true));
+        exprs.push(("@T10:30:00 > @T10:00:00", true));
+        exprs.push(("@T10:30:00 >= @T10:00:00", true));
+        exprs.push(("@T10:30:00 < @T10:00:00", false));
+        exprs.push(("@T10:30:00 <= @T10:00:00", false));
+        exprs.push(("@T10:30:00 > @T10:30:00.000", false));
+        exprs.push(("@T10:30:00 < @T10:30:00.000", false));
+        exprs.push(("@T10:30:00 >= @T10:30:00.000", true));
+        exprs.push(("@T10:30:00 <= @T10:30:00.000", true));
+
+        let base = Rc::new(SystemType::Collection(Collection::new_empty()));
+        for (input, expected) in exprs {
+            println!("{}", input);
+            let e = parse_expression(input);
+            let result = eval(&e, Rc::clone(&base)).unwrap();
+            assert_eq!(expected, result.as_bool().unwrap());
+        }
+
+        let mut exprs_with_empty_result = Vec::new();
+        exprs_with_empty_result.push("4 'm' > 4 'cm'");
+        exprs_with_empty_result.push("4 'm' < 4 'cm'");
+        exprs_with_empty_result.push("4 'm' >= 4 'cm'");
+        exprs_with_empty_result.push("4 'm' <= 4 'cm'");
+        exprs_with_empty_result.push("@2018-03 > @2018-03-01");
+        exprs_with_empty_result.push("@2018-03 < @2018-03-01");
+        exprs_with_empty_result.push("@2018-03 >= @2018-03-01");
+        exprs_with_empty_result.push("@2018-03 <= @2018-03-01");
+        exprs_with_empty_result.push("@2018-03-01T10 > @2018-03-01T10:30");
+        exprs_with_empty_result.push("@2018-03-01T10 < @2018-03-01T10:30");
+        exprs_with_empty_result.push("@2018-03-01T10 >= @2018-03-01T10:30");
+        exprs_with_empty_result.push("@2018-03-01T10 <= @2018-03-01T10:30");
+        exprs_with_empty_result.push("@T10 > @T10:30");
+        exprs_with_empty_result.push("@T10 < @T10:30");
+        exprs_with_empty_result.push("@T10 >= @T10:30");
+        exprs_with_empty_result.push("@T10 <= @T10:30");
+        for input in exprs_with_empty_result {
+            println!("{}", input);
+            let e = parse_expression(input);
+            let result = eval(&e, Rc::clone(&base)).unwrap();
+            assert!(result.is_empty());
+        }
     }
 }
