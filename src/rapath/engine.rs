@@ -55,6 +55,11 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
 
                         Ok(Rc::new(SystemType::Boolean(false)))
                     },
+                    Is => {
+                        let lr = eval_with_custom_comparison(&lhs, Rc::clone(&base), cmp_func)?;
+                        let rr = eval_with_custom_comparison(&rhs, Rc::clone(&base), cmp_func)?;
+                        SystemType::is(lr, rr)
+                    }
                     _ => {
                         Err(EvalError::new(format!("unsupported binary operation {:?}", op)))
                     }
@@ -281,5 +286,39 @@ mod tests {
             let result = eval(&e, Rc::clone(&base)).unwrap();
             assert!(result.is_empty());
         }
+    }
+
+    #[test]
+    fn test_is() {
+        let bdoc = bson::doc!{"resource": {"resourceType": "Provider", "name": "k"}};
+        let raw = DocBuf::from_document(&bdoc);
+        let doc_el = Element::new(ElementType::EmbeddedDocument, raw.as_bytes());
+        let doc_base = Rc::new(SystemType::Element(doc_el));
+
+        let mut exprs = Vec::new();
+        exprs.push(("resource is Provider", true));
+        exprs.push(("resource is Patient", false));
+
+        for (input, expected) in exprs {
+            let e = parse_expression(input);
+            let result = eval(&e, Rc::clone(&doc_base)).unwrap();
+            assert_eq!(expected, result.as_bool().unwrap());
+        }
+
+        let mut col = Collection::new();
+        col.push(Rc::clone(&doc_base));
+        let singleton_base = Rc::new(SystemType::Collection(col));
+        let e = parse_expression("resource is Provider");
+        let result = eval(&e, Rc::clone(&singleton_base)).unwrap();
+        assert_eq!(true, result.as_bool().unwrap());
+
+        let mut col = Collection::new();
+        col.push(Rc::clone(&doc_base));
+        col.push(Rc::clone(&doc_base));
+        let result = eval(&e, Rc::new(SystemType::Collection(col)));
+        assert!(result.is_err());
+
+        let result = eval(&e, Rc::new(SystemType::Collection(Collection::new_empty()))).unwrap();
+        assert!(result.is_empty());
     }
 }

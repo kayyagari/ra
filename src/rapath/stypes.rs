@@ -1145,6 +1145,31 @@ impl<'b> SystemType<'b> {
         Ok(Rc::new(le))
     }
 
+    pub fn is(lhs: Rc<SystemType<'b>>, rhs: Rc<SystemType<'b>>) -> EvalResult<'b> {
+        if lhs.is_empty() {
+            return Ok(lhs);
+        }
+
+        match lhs.borrow() {
+            SystemType::Collection(c1) => {
+                if c1.len() != 1 {
+                    return Err(EvalError::new(String::from("lhs must be a singleton for evaluating is operation")));
+                }
+                let lhs = c1.val.as_ref().unwrap().into_iter().next().unwrap();
+                SystemType::is(Rc::clone(lhs), rhs)
+            },
+            SystemType::Element(e) => {
+                if let SystemType::String(type_id) = rhs.borrow() {
+                    let b = element_utils::is_resource_of_type(e, type_id.as_str());
+                    return Ok(Rc::new(SystemType::Boolean(b)));
+                }
+                Err(EvalError::new(String::from("rhs is not a valid type identifier")))
+            },
+            _ => {
+                Ok(Rc::new(SystemType::Collection(Collection::new_empty())))
+            }
+        }
+    }
 }
 
 impl Eq for SystemQuantity {}

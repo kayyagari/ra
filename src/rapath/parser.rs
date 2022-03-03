@@ -180,6 +180,20 @@ impl<'a> Parser<'a> {
                     op
                 })
             },
+            IS => {
+                // if the RHS is a Path (created from an IDENTIFIER token)
+                // then convert it into a String literal
+                let mut rhs = self.expression(t.lbp())?;
+                if let Ast::Path{name} = rhs {
+                    rhs = Ast::Literal {val: Rc::new(SystemType::String(SystemString::new(name)))};
+                }
+
+                Ok(Ast::Binary {
+                    lhs: left,
+                    rhs: Box::new(rhs),
+                    op: Operator::Is
+                })
+            },
             LEFT_PAREN => match *left {
                 Ast::Path {name: n, ..} => {
                     let args = self.parse_function_args()?;

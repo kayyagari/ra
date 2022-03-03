@@ -261,3 +261,24 @@ pub fn equals(lhs: &Element, rhs: &Element) -> Result<bool, RawError>  {
         }
     }
 }
+
+pub fn is_resource_of_type(e: &Element, name: &str) -> bool {
+    match e.element_type() {
+        ElementType::EmbeddedDocument => {
+            let doc = e.as_document();
+            if let Ok(doc) = doc {
+                let rt = doc.get("resourceType");
+                if let Ok(rt) = rt {
+                    if let Some(rt) = rt {
+                        if let Ok(rt) = rt.as_str() {
+                            return rt == name;
+                        }
+                    }
+                }
+            }
+        },
+        _ => {}
+    }
+
+    false
+}
