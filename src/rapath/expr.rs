@@ -39,6 +39,11 @@ pub enum Ast<'a> {
     },
     EnvVariable {
         val: SystemType<'a>
+    },
+    TypeCast {
+        at_name: String,
+        at_and_type_name: String,
+        type_name: String
     }
 }
 
@@ -97,7 +102,8 @@ impl<'a, 'b> Display for Ast<'a> {
             Function{..} => "Function",
             Index{..} => "Index",
             Literal{..} => "Literal",
-            EnvVariable{..} => "EnvVariable"
+            EnvVariable{..} => "EnvVariable",
+            TypeCast {..} => "TypeCast"
         };
 
         f.write_str(s)

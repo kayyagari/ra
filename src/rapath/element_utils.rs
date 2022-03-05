@@ -282,3 +282,35 @@ pub fn is_resource_of_type(e: &Element, name: &str) -> bool {
 
     false
 }
+
+pub fn get_attribute_to_cast_to<'b>(base: Rc<SystemType<'b>>, at_name: &str, at_and_type_name: &str) -> EvalResult<'b> {
+    match base.borrow() {
+        SystemType::Element(e) => {
+            match e.element_type() {
+                ElementType::EmbeddedDocument => {
+                    let doc = e.as_document()?;
+                    let at = doc.get(at_name)?;
+                    let mut value= None;
+                    if let Some(at) = at {
+                        value = to_systype(at);
+                    }
+                    else {
+                        let at = doc.get(at_and_type_name)?;
+                        if let Some(at) = at {
+                            value = to_systype(at);
+                        }
+                    }
+
+                    if let None = value {
+                        return Err(EvalError::new(format!("neither {} nor {} found in the attributes of the base element", at_name, at_and_type_name)));
+                    }
+                    return Ok(Rc::new(value.unwrap()));
+                },
+                _ => {}
+            }
+        },
+        _ => {}
+    }
+
+    Ok(base)
+}

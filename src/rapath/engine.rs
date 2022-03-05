@@ -7,12 +7,13 @@ use std::rc::Rc;
 use rawbson::elem::{Element, ElementType};
 
 use crate::errors::EvalError;
-use crate::rapath::element_utils::{eval_path, to_systype};
+use crate::rapath::element_utils::{get_attribute_to_cast_to, eval_path, to_systype};
 use crate::rapath::EvalResult;
 use crate::rapath::functions::where_::where_;
 use crate::rapath::expr::{Ast, CmpFunc, Operator};
 use crate::rapath::expr::Ast::*;
 use crate::rapath::expr::Operator::*;
+use crate::rapath::functions::cast_as::cast;
 use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, SystemTypeType};
 
 // pub struct ExecContext<'a> {
@@ -77,6 +78,10 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
             },
             Function {func} => {
                 func.eval_func(base)
+            },
+            TypeCast {at_name, at_and_type_name, type_name} => {
+                let el = get_attribute_to_cast_to(base, at_name, at_and_type_name)?;
+                cast(el, type_name)
             },
             e => {
                 Err(EvalError::new(format!("unsupported expression {}", e)))
@@ -320,5 +325,34 @@ mod tests {
 
         let result = eval(&e, Rc::new(SystemType::Collection(Collection::new_empty()))).unwrap();
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_as() {
+        let bdoc = bson::doc! {"value": {"value": 161.42333812930528,
+          "unit": "cm",
+          "system": "http://unitsofmeasure.org",
+          "code": "cm"}, "codeQuantity": {
+          "value": 41.76996932711261,
+          "unit": "kg",
+          "system": "http://unitsofmeasure.org",
+          "code": "kg"}, "name": "k"};
+        let raw = DocBuf::from_document(&bdoc);
+        let doc_el = Element::new(ElementType::EmbeddedDocument, raw.as_bytes());
+        let doc_base = Rc::new(SystemType::Element(doc_el));
+
+        let mut exprs = Vec::new();
+        exprs.push(("value as Quantity", true)); // attribute "value" exists
+        exprs.push(("code as Quantity", true)); // attribute "code" doesn't exist but "codeQuantity" does
+        exprs.push(("value as Quantity > 1 'cm'", true));
+        exprs.push(("value as Quantity > 1 'cm' and 0 = 0", true)); // just to check if the parser is doing it right or not
+        exprs.push(("code as Quantity < 1 'kg'", false));
+        exprs.push(("code as Quantity < 1 'kg' and 1 = 1", false)); // just to check if the parser is doing it right or not
+
+        for (input, expected) in exprs {
+            let e = parse_expression(input);
+            let result = eval(&e, Rc::clone(&doc_base)).unwrap();
+            assert_eq!(expected, result.is_truthy());
+        }
     }
 }

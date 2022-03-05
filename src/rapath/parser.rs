@@ -194,6 +194,34 @@ impl<'a> Parser<'a> {
                     op: Operator::Is
                 })
             },
+            AS => {
+                // if the RHS is a Path (created from an IDENTIFIER token)
+                // then convert it into a String literal
+                let rhs = self.expression(t.lbp())?;
+                let type_name;
+                if let Ast::Path{name} = rhs {
+                    type_name = name;
+                }
+                else {
+                    return Err(ParseError::new(format!("invalid type name in AS expression",)))
+                }
+
+                match *left {
+                    Ast::Path { name} => {
+                        let at_and_type_name = format!("{}{}", &name, &type_name);
+                        return Ok(Ast::TypeCast {at_name: name, type_name, at_and_type_name});
+                    },
+                    Ast::SubExpr {lhs: prev_lhs, rhs: prev_rhs} => {
+                        if let Ast::Path { name} = &*prev_rhs {
+                            let at_and_type_name = format!("{}{}", name, &type_name);
+                            let cast = Ast::TypeCast {at_name: name.clone(), type_name, at_and_type_name};
+                            return Ok(Ast::SubExpr {lhs: prev_lhs, rhs: Box::new(cast)});
+                        }
+                    },
+                    _ => {}
+                }
+                Err(ParseError::new(format!("invalid lhs in AS expression")))
+            },
             LEFT_PAREN => match *left {
                 Ast::Path {name: n, ..} => {
                     let args = self.parse_function_args()?;
@@ -342,5 +370,20 @@ mod tests {
             let result = parse(tokens);
             assert_eq!(expected, result.is_ok());
         }
+    }
+
+    #[test]
+    fn test_parsing_as_expr() {
+        let mut exprs = Vec::new();
+        exprs.push("DeviceRequest.code as CodeableConcept");
+        exprs.push("code as CodeableConcept");
+        for input in exprs {
+            let tokens = scan_tokens(input).unwrap();
+            let result = parse(tokens);
+            assert!(result.is_ok());
+        }
+
+        let result = parse(scan_tokens("as CodeableConcept").unwrap());
+        assert!(result.is_err());
     }
 }
