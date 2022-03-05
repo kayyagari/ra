@@ -60,7 +60,55 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
                         let lr = eval_with_custom_comparison(&lhs, Rc::clone(&base), cmp_func)?;
                         let rr = eval_with_custom_comparison(&rhs, Rc::clone(&base), cmp_func)?;
                         SystemType::is(lr, rr)
-                    }
+                    },
+                    Xor => {
+                        let lr = eval_with_custom_comparison(&lhs, Rc::clone(&base), cmp_func)?;
+                        if lr.is_empty() {
+                            return Ok(lr);
+                        }
+                        let rr = eval_with_custom_comparison(&rhs, Rc::clone(&base), cmp_func)?;
+                        if rr.is_empty() {
+                            return Ok(rr);
+                        }
+                        let lr = lr.is_truthy();
+                        let rr = rr.is_truthy();
+                        let result;
+                        if (lr && !rr) || (!lr && rr) {
+                            result = true;
+                        }
+                        else {
+                            result = false;
+                        }
+                        Ok(Rc::new(SystemType::Boolean(result)))
+                    },
+                    Implies => {
+                        let lr = eval_with_custom_comparison(&lhs, Rc::clone(&base), cmp_func)?;
+                        let lr_true = lr.is_truthy();
+                        let lr_empty = lr.is_empty();
+                        if !lr_empty && !lr_true {
+                            return Ok(Rc::new(SystemType::Boolean(true)));
+                        }
+                        let rr = eval_with_custom_comparison(&rhs, Rc::clone(&base), cmp_func)?;
+                        let rr_empty = rr.is_empty();
+                        if lr_empty && rr_empty {
+                            return Ok(rr);
+                        }
+                        let rr_true = rr.is_truthy();
+
+                        if lr_true {
+                            if rr_true {
+                                return Ok(Rc::new(SystemType::Boolean(true)));
+                            }
+                            else if rr_empty {
+                                return Ok(rr); // empty
+                            }
+                            return Ok(Rc::new(SystemType::Boolean(false)));
+                        }
+                        else if lr_empty && rr_true {
+                            return Ok(Rc::new(SystemType::Boolean(true)));
+                        }
+                        Ok(Rc::new(SystemType::Collection(Collection::new_empty())))
+                    },
                     _ => {
                         Err(EvalError::new(format!("unsupported binary operation {:?}", op)))
                     }
@@ -74,7 +122,7 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
             },
             SubExpr {lhs, rhs} => {
                 let lb = eval(lhs, base)?;
-                eval(rhs, Rc::clone(&lb))
+                eval_with_custom_comparison(rhs, Rc::clone(&lb), cmp_func)
             },
             Function {func} => {
                 func.eval_func(base)
@@ -353,6 +401,77 @@ mod tests {
             let e = parse_expression(input);
             let result = eval(&e, Rc::clone(&doc_base)).unwrap();
             assert_eq!(expected, result.is_truthy());
+        }
+    }
+
+    #[test]
+    fn test_xor() {
+        let bdoc = bson::doc!{"k": 2, "r": 7};
+        let raw = DocBuf::from_document(&bdoc);
+        let doc_el = Element::new(ElementType::EmbeddedDocument, raw.as_bytes());
+        let doc_base = Rc::new(SystemType::Element(doc_el));
+
+        // outcome: 0 - false, 1 - true, -1 - empty
+        let mut exprs = Vec::new();
+        exprs.push(("1 = 1 xor k = 2", 0));
+        exprs.push(("1 = 1 xor r != 7", 1));
+        exprs.push(("1 = 1 xor empty_attribute", -1));
+
+        exprs.push(("1 != 1 xor k = 2", 1));
+        exprs.push(("1 != 1 xor r != 7", 0));
+        exprs.push(("1 != 1 xor empty_attribute", -1));
+
+        exprs.push(("empty_attribute xor k = 2", -1));
+        exprs.push(("empty_attribute xor r != 7", -1));
+        exprs.push(("empty_attribute xor empty_attribute", -1));
+
+        for (input, expected) in exprs {
+            let e = parse_expression(input);
+            let r = eval(&e, Rc::clone(&doc_base)).unwrap();
+            match expected {
+                -1 => assert!(r.is_empty()),
+                1 => assert_eq!(true, r.as_bool().unwrap()),
+                0 => assert_eq!(false, r.as_bool().unwrap()),
+                _ => {
+                    assert!(false, "invalid input, unknown outcome")
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_implies() {
+        let bdoc = bson::doc!{"k": 2, "r": 7};
+        let raw = DocBuf::from_document(&bdoc);
+        let doc_el = Element::new(ElementType::EmbeddedDocument, raw.as_bytes());
+        let doc_base = Rc::new(SystemType::Element(doc_el));
+
+        // outcome: 0 - false, 1 - true, -1 - empty
+        let mut exprs = Vec::new();
+        exprs.push(("r = 7 implies k = 2", 1));
+        exprs.push(("r = 7 implies k != 2", 0));
+        exprs.push(("r = 7 implies empty_attribute", -1));
+
+        exprs.push(("r != 7 implies k = 2", 1));
+        exprs.push(("r != 7 implies k != 2", 1));
+        exprs.push(("r != 7 implies empty_attribute", 1));
+
+        exprs.push(("empty_attribute implies k = 2", 1));
+        exprs.push(("empty_attribute implies r != 7", -1));
+        exprs.push(("empty_attribute implies empty_attribute", -1));
+
+        for (input, expected) in exprs {
+            println!("{}", input);
+            let e = parse_expression(input);
+            let r = eval(&e, Rc::clone(&doc_base)).unwrap();
+            match expected {
+                -1 => assert!(r.is_empty()),
+                1 => assert_eq!(true, r.as_bool().unwrap()),
+                0 => assert_eq!(false, r.as_bool().unwrap()),
+                _ => {
+                    assert!(false, "invalid input, unknown outcome")
+                }
+            }
         }
     }
 }

@@ -133,44 +133,20 @@ impl<'a> Parser<'a> {
                     rhs: Box::new(rhs)
                 })
             },
-            AND => {
-                let rhs = self.expression(t.lbp())?;
-                Ok(Ast::Binary {
-                    lhs: left,
-                    rhs: Box::new(rhs),
-                    op: Operator::And
-                })
-            },
-            OR => {
-                let rhs = self.expression(t.lbp())?;
-                Ok(Ast::Binary {
-                    lhs: left,
-                    rhs: Box::new(rhs),
-                    op: Operator::Or
-                })
-            },
-            EQUAL => {
-                let rhs = self.expression(t.lbp())?;
-                Ok(Ast::Binary {
-                    lhs: left,
-                    rhs: Box::new(rhs),
-                    op: Operator::Equal
-                })
-            },
-            PLUS => {
-                let rhs = self.expression(t.lbp())?;
-                Ok(Ast::Binary {
-                    lhs: left,
-                    rhs: Box::new(rhs),
-                    op: Operator::Plus
-                })
-            },
-            GREATER | GREATER_EQUAL | LESS | LESS_EQUAL => {
+            AND | OR | XOR | EQUAL | NOT_EQUAL | EQUIVALENT | PLUS | GREATER | GREATER_EQUAL | LESS | LESS_EQUAL | IMPLIES => {
                 let op = match t {
+                    AND => Operator::And,
+                    OR => Operator::Or,
+                    XOR => Operator::Xor,
+                    EQUAL => Operator::Equal,
+                    NOT_EQUAL => Operator::NotEqual,
+                    EQUIVALENT => Operator::Equivalent,
+                    PLUS => Operator::Plus,
                     GREATER => Operator::Greater,
                     GREATER_EQUAL => Operator::GreaterEqual,
                     LESS => Operator::Less,
                     LESS_EQUAL => Operator::LessEqual,
+                    IMPLIES => Operator::Implies,
                     _ => Operator::Greater // never happens, but to keep compiler happy
                 };
                 let rhs = self.expression(t.lbp())?;
