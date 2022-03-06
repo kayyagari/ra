@@ -41,12 +41,12 @@ pub enum Ast<'a> {
         name: String
     },
     EnvVariable {
-        val: SystemType<'a>
+        name: String
     },
     TypeCast {
-        at_name: String,
-        at_and_type_name: String,
-        type_name: String
+        at_name: String, // e.g value
+        at_and_type_name: String, // e.g valueCodeableConcept
+        type_name: String // e.g CodeableConcept
     }
 }
 

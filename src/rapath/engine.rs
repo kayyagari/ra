@@ -134,7 +134,13 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
             Variable {name} => {
                 match name.as_str() {
                     "$this" => Ok(Rc::clone(&base)),
-                    _ => Err(EvalError::new(format!("unsupported variable name {}", name)))
+                    _ => Err(EvalError::new(format!("unknown variable {}", name)))
+                }
+            },
+            EnvVariable {name} => {
+                match name.as_str() {
+                    "%resource" => Ok(Rc::clone(&base)),
+                    _ => Err(EvalError::new(format!("unknown environment variable {}", name)))
                 }
             },
             e => {

@@ -78,7 +78,7 @@ impl<'a> Parser<'a> {
                 Ok(Ast::Path {name: id})
             },
             CONSTANT(c) => {
-                Ok(Ast::EnvVariable {val: SystemType::String(SystemString::new(c))})
+                Ok(Ast::EnvVariable {name: c})
             },
             NUMBER(n) => {
                 let sd = SystemNumber::from(&n)?;
