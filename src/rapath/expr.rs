@@ -37,6 +37,9 @@ pub enum Ast<'a> {
     Literal {
         val: Rc<SystemType<'a>>
     },
+    Variable {
+        name: String
+    },
     EnvVariable {
         val: SystemType<'a>
     },
@@ -68,6 +71,9 @@ impl<'a, 'b> Function<'a> where 'a: 'b {
                     },
                     "empty" => {
                         empty(base, args)
+                    },
+                    "exists" => {
+                        exists(base, args)
                     },
                     _ => {
                         Err(EvalError::new(format!("unknown function name {}", name)))
@@ -103,7 +109,8 @@ impl<'a, 'b> Display for Ast<'a> {
             Index{..} => "Index",
             Literal{..} => "Literal",
             EnvVariable{..} => "EnvVariable",
-            TypeCast {..} => "TypeCast"
+            TypeCast {..} => "TypeCast",
+            Variable {..} => "Variable"
         };
 
         f.write_str(s)

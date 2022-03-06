@@ -117,6 +117,9 @@ impl<'a> Parser<'a> {
                     }
                 }
             },
+            DOLLAR_THIS => {
+                Ok(Ast::Variable {name: String::from("$this")})
+            },
             _ => {
                 Err(ParseError::new(format!("unexpected token {}", t)))
             }
@@ -133,7 +136,7 @@ impl<'a> Parser<'a> {
                     rhs: Box::new(rhs)
                 })
             },
-            AND | OR | XOR | EQUAL | NOT_EQUAL | EQUIVALENT | PLUS | GREATER | GREATER_EQUAL | LESS | LESS_EQUAL | IMPLIES => {
+            AND | OR | XOR | EQUAL | NOT_EQUAL | EQUIVALENT | NOT_EQUIVALENT | PLUS | GREATER | GREATER_EQUAL | LESS | LESS_EQUAL | IMPLIES => {
                 let op = match t {
                     AND => Operator::And,
                     OR => Operator::Or,
@@ -141,6 +144,7 @@ impl<'a> Parser<'a> {
                     EQUAL => Operator::Equal,
                     NOT_EQUAL => Operator::NotEqual,
                     EQUIVALENT => Operator::Equivalent,
+                    NOT_EQUIVALENT => Operator::NotEquivalent,
                     PLUS => Operator::Plus,
                     GREATER => Operator::Greater,
                     GREATER_EQUAL => Operator::GreaterEqual,

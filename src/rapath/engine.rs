@@ -131,6 +131,12 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
                 let el = get_attribute_to_cast_to(base, at_name, at_and_type_name)?;
                 cast(el, type_name)
             },
+            Variable {name} => {
+                match name.as_str() {
+                    "$this" => Ok(Rc::clone(&base)),
+                    _ => Err(EvalError::new(format!("unsupported variable name {}", name)))
+                }
+            },
             e => {
                 Err(EvalError::new(format!("unsupported expression {}", e)))
             }
