@@ -69,10 +69,13 @@ impl<'a> Parser<'a> {
                 // strip the resourcename if present in the beginning of the identifier
                 if !self.is_prev_dot() {
                     if self.is_resource_name(&id) {
+                        // proceed only if the next token is DOT
+                        // otherwise it will wrongly assumes that an expression like "where(resolve() is Patient)"
+                        // has a path after the resource name "Patient"
                         if self.peek().0 == DOT {
                             self.advance();
+                            return self.null_denotation();
                         }
-                        return self.null_denotation();
                     }
                 }
                 Ok(Ast::Path {name: id})
@@ -136,7 +139,8 @@ impl<'a> Parser<'a> {
                     rhs: Box::new(rhs)
                 })
             },
-            AND | OR | XOR | EQUAL | NOT_EQUAL | EQUIVALENT | NOT_EQUIVALENT | PLUS | GREATER | GREATER_EQUAL | LESS | LESS_EQUAL | IMPLIES => {
+            AND | OR | XOR | EQUAL | NOT_EQUAL | EQUIVALENT | NOT_EQUIVALENT |
+            PLUS | GREATER | GREATER_EQUAL | LESS | LESS_EQUAL | IMPLIES | UNION => {
                 let op = match t {
                     AND => Operator::And,
                     OR => Operator::Or,
@@ -151,6 +155,7 @@ impl<'a> Parser<'a> {
                     LESS => Operator::Less,
                     LESS_EQUAL => Operator::LessEqual,
                     IMPLIES => Operator::Implies,
+                    UNION => Operator::Union,
                     _ => Operator::Greater // never happens, but to keep compiler happy
                 };
                 let rhs = self.expression(t.lbp())?;
