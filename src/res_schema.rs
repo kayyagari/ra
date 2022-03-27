@@ -1,13 +1,19 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use bson::Document;
 
 use crc32fast::Hasher;
 use jsonschema::JSONSchema;
 use log::{debug, error, info, trace, warn};
+use regex::Regex;
 use serde_json::Value;
 use crate::dtypes::DataType;
 use crate::{utils};
 use crate::errors::RaError;
-use crate::utils::prefix_id;
+use crate::rapath::expr::Ast;
+use crate::rapath::parser::{parse, parse_with_schema};
+use crate::rapath::scanner::scan_tokens;
+use crate::search::SearchParamType;
+use crate::utils::{get_crc_hash, prefix_id};
 use crate::utils::validator::validate_resource;
 
 extern crate crc32fast;
@@ -15,6 +21,8 @@ extern crate crc32fast;
 pub struct SchemaDef {
     pub props: HashMap<String, Box<PropertyDef>>,
     pub resources: HashMap<String, ResourceDef>,
+    pub search_params: HashMap<u32, SearchParamDef>,
+    search_params_by_res_name: HashMap<String, HashMap<String, u32>>,
     schema: JSONSchema
 }
 
@@ -30,17 +38,33 @@ pub struct ResourceDef {
     /// A map of all reference properties and their associated prefix hashes
     pub ref_props: HashMap<String, [u8; 4]>,
     pub attributes: HashMap<String, Box<PropertyDef>>,
-    pub search_params: HashMap<&'static str, &'static SearchParamDef>
+    //pub search_params: HashMap<&'static str, &'static SearchParamDef>
 }
 
+#[derive(Debug)]
 pub struct SearchParamDef {
+    // using an integer generated from ksuid to make the cloning cheap
+    // and use less memory, this is NOT "hash" of the search parameter
+    pub id: u32,
     pub code: String,
-    pub param_type: &'static str,
-    pub expression: String,
-    pub conditional_expression: bool,
-    pub components: Option<Vec<String>>
+    pub param_type: SearchParamType,
+    // storing the expressions in string form instead of Ast. Ast requires
+    // SystemType to be Send + Sync also this forces the use of Arc, so
+    // probably the best is to store this Ast in a cache inside barn.rs
+    pub expressions: HashMap<String, Option<SearchParamExpr>>,
+    pub components: Option<Vec<String>>,
+    pub multiple_or: bool,
+    pub multiple_and: bool,
+    pub targets: Option<HashMap<String, bool>>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct SearchParamExpr {
+    pub hash: [u8;4], // this is the CRC hash of Resource's name + "_" + search param's code
+    pub expr: String
+}
+
+#[derive(Debug)]
 pub struct PropertyDef {
     pub name: String,
     pub ref_type_name: String,
@@ -108,6 +132,29 @@ impl SchemaDef {
     pub fn validate(&self, val: &Value) -> Result<(), RaError> {
         validate_resource(&self.schema, val)
     }
+
+    pub fn add_search_param(&mut self, spd: SearchParamDef) {
+        for (res_name, expr) in &spd.expressions {
+            if !self.search_params_by_res_name.contains_key(res_name) {
+                self.search_params_by_res_name.insert(res_name.clone(), HashMap::new());
+            }
+            let search_params_of_res = self.search_params_by_res_name.get_mut(res_name).unwrap();
+            if let Some(expr) = expr {
+                search_params_of_res.insert(spd.code.clone(), spd.id);
+            }
+        }
+        self.search_params.insert(spd.id, spd);
+    }
+
+    #[inline]
+    pub fn get_search_params_of(&self, res_name: &String) -> Option<&HashMap<String, u32>> {
+        self.search_params_by_res_name.get(res_name)
+    }
+
+    #[inline]
+    pub fn get_search_param(&self, id: u32) -> Option<&SearchParamDef> {
+        self.search_params.get(&id)
+    }
 }
 
 pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
@@ -173,13 +220,14 @@ pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
             revinclude_hash,
             ref_props,
             attributes,
-            search_params: HashMap::new() // TODO
+            //search_params: HashMap::new() // TODO
         };
 
         resource_defs.insert(String::from(res_name), res_def);
     }
 
-    let s = SchemaDef { props: global_props, resources: resource_defs, schema: jschema.unwrap() };
+    let s = SchemaDef { props: global_props, resources: resource_defs, schema: jschema.unwrap(),
+                        search_params: HashMap::new(), search_params_by_res_name: HashMap::new() };
     Ok(s)
 }
 
@@ -262,8 +310,186 @@ fn parse_single_prop_def(name: &String, pdef_json: &serde_json::map::Map<String,
     Ok(pdef)
 }
 
-fn parse_search_params() {
+pub fn parse_search_param(param_value: &Document, sd: &SchemaDef) -> Result<SearchParamDef, RaError> {
+    let id = param_value.get_str("id")?;
+    let code = param_value.get_str("code")?;
+    let ptype = param_value.get_str("type")?;
+    let ptype = SearchParamType::from(ptype)?;
 
+    let mut components: Option<Vec<String>> = None;
+    if ptype == SearchParamType::Composite {
+
+    }
+
+    let mut multiple_or = param_value.get_bool("multipleOr").unwrap_or(true);
+    let mut multiple_and = param_value.get_bool("multipleAnd").unwrap_or(true);
+
+    let mut expression = None;
+    let expr = param_value.get("expression");
+    if let Some(e) = expr {
+        expression = Some(e.as_str().unwrap().to_string());
+    }
+
+    let mut res_expr_map: HashMap<String, Option<SearchParamExpr>> = HashMap::new();
+    let base = param_value.get_array("base")?;
+    if base.len() == 1 {
+        let res_name = base[0].as_str().unwrap();
+        res_expr_map.insert(res_name.to_string(), None);
+        if let Some(e) = expr {
+            let e = e.as_str().unwrap();
+            let _ = parse_search_param_expression(e, code, sd)?; // validating the expression
+            let hash = get_crc_hash(format!("{}_{}", res_name, code));
+            let search_expr = SearchParamExpr{expr: e.to_string(), hash};
+            res_expr_map.insert(res_name.to_string(), Some(search_expr));
+        }
+    }
+    else {
+        let res_name_pattern = Regex::new("[a-zA-Z]+\\.").unwrap();
+        for b in base {
+            res_expr_map.insert(b.as_str().unwrap().to_string(), None);
+        }
+        if let Some(e) = expr {
+            let sub_exprs = split_union_expr(e.as_str().unwrap())?;
+            for se in sub_exprs {
+                let res_match = res_name_pattern.find(se);
+                if let Some(res_match) = res_match {
+                    let res_name = res_match.as_str();
+                    let res_name = &res_name[0..res_name.len()-1];
+                    if res_expr_map.contains_key(res_name) {
+                        debug!("parsing expression {} for resource {}", se, res_name);
+                        let _ = parse_search_param_expression(se, code, sd)?; // validating the expression
+                        if let Some(part_of_res_expr) =  res_expr_map.get_mut(res_name) {
+                            // join the parts of expression related to the same resource
+                            // e.g AllergyIntolerance.code | AllergyIntolerance.reaction.substance
+                            if let Some(part_of_res_expr) = part_of_res_expr {
+                                part_of_res_expr.expr.push_str(" | ");
+                                part_of_res_expr.expr.push_str(se);
+                            }
+                            else {
+                                let hash = get_crc_hash(format!("{}_{}", res_name, code));
+                                let search_expr = SearchParamExpr{expr: se.to_string(), hash};
+                                res_expr_map.insert(res_name.to_string(), Some(search_expr));
+                            }
+                        }
+                    }
+                    else {
+                        warn!("couldn't find the resource name {} in the base, it is likely that the expression split is buggy, full expression is {}", res_name, e.as_str().unwrap());
+                    }
+                }
+            }
+        }
+    }
+
+    let mut target_resources: Option<HashMap<String, bool>> = None;
+    let target = param_value.get("target");
+    if let Some(target) = target {
+        let target = target.as_array().unwrap();
+        let mut target_map = HashMap::new();
+        for t in target {
+            target_map.insert(t.as_str().unwrap().to_string(), true);
+        }
+
+        target_resources = Some(target_map);
+    }
+
+    let id = get_crc_from_id(id);
+    let spd = SearchParamDef { id, code: code.to_string(),
+        param_type: ptype,
+        components, expressions: res_expr_map, multiple_or, multiple_and,
+        targets: target_resources
+    };
+
+    Ok(spd)
+}
+
+fn parse_search_param_expression<'s>(expr: &str, code: &str, sd: &'s SchemaDef) -> Result<Ast<'s>, RaError> {
+    let tokens = scan_tokens(expr);
+    if let Err(e) = tokens {
+        return Err(RaError::SearchExprParsingError(format!("invalid expression {} of search param {} {}", expr, code, e.to_string())));
+    }
+
+    let ast = parse_with_schema(tokens.unwrap(), Some(sd));
+    if let Err(e) = ast {
+        return Err(RaError::SearchExprParsingError(format!("unable to parse the expression {} of search param {} {}", expr, code, e.to_string())));
+    }
+
+    Ok(ast.unwrap())
+}
+
+fn split_union_expr(expr: &str) -> Result<Vec<&str>, RaError> {
+    let mut parts: Vec<&str> = Vec::new();
+    let mut chars = expr.char_indices().peekable();
+
+    let mut start = 0;
+    let mut end = 0;
+
+    let mut stack = VecDeque::new();
+    let mut prev = ' ';
+    loop {
+        match chars.next() {
+            Some((_, c)) => {
+                match c {
+                    '|' => {
+                        if stack.is_empty() {
+                            let e = &expr[start..end].trim();
+                            parts.push(e);
+                            start = end + 1;
+                        }
+                    },
+                    '(' => {
+                        stack.push_front(c);
+                    },
+                    ')' => {
+                        let p = stack.pop_front().unwrap_or(' ');
+                        if p != '(' {
+                            return Err(RaError::SearchExprParsingError(format!("invalid expression {} mismatched parentheses", expr)));
+                        }
+                    },
+                    '"' | '\'' => {
+                        if prev != '\\' {
+                            let p = stack.get(0);
+                            if let None = p {
+                                stack.push_front(c);
+                            }
+                            else {
+                                let p = p.unwrap();
+                                if p == &c {
+                                    stack.pop_front();
+                                }
+                                else {
+                                    stack.push_front(c);
+                                }
+                            }
+                        }
+                    },
+                    _ => {prev = c;}
+                }
+            },
+            None => {break;}
+        }
+        end += 1;
+    }
+
+    if !stack.is_empty() {
+        return Err(RaError::SearchExprParsingError(format!("invalid expression {} in search parameter", expr)));
+    }
+
+    if parts.is_empty() {
+        parts.push(expr.trim());
+    }
+    else if start < expr.len() { // last expression, its validity cannot be enforced here
+        parts.push(&expr[start..end].trim());
+    }
+
+    Ok(parts)
+}
+
+// this is used for generating unique IDs for SearchParamDef
+// instances that need to be stored in memory
+fn get_crc_from_id(id: &str) -> u32 {
+    let mut hasher = Hasher::new();
+    hasher.update(id.as_bytes());
+    hasher.finalize()
 }
 
 impl ResourceDef {
@@ -307,13 +533,18 @@ impl ResourceDef {
 
 #[cfg(test)]
 mod tests {
-    use crate::res_schema::{parse_res_def, SchemaDef};
+    use crate::res_schema::{parse_res_def, parse_search_param, SchemaDef, split_union_expr};
     use crate::utils::{get_crc_hash, u32_from_le_bytes};
     use std::fs::File;
     use anyhow::Error;
+    use bson::doc;
     use serde_json::Value;
     use crate::configure_log4rs;
     use crate::dtypes::DataType;
+    use crate::rapath::parser::parse_with_schema;
+    use crate::rapath::scanner::scan_tokens;
+    use crate::search::SearchParamType;
+    use crate::utils::test_utils::parse_expression;
 
     /// a trivial test to check that CRC doesn't produce a collision when
     /// the letters are interchanged in the same string
@@ -430,5 +661,60 @@ mod tests {
         assert_eq!(&observation.hash, &rev_ref_id[24..28]);
         assert_eq!(oid.as_bytes(), &rev_ref_id[28..]);
         Ok(())
+    }
+
+    #[test]
+    fn test_search_param_expr_parsing() -> Result<(), Error> {
+        let s = parse_schema();
+        let res_name = "ActivityDefinition";
+        let expr = "(ActivityDefinition.useContext.value = 1 )";
+        let tokens = scan_tokens(expr).unwrap();
+        let mut expr = parse_with_schema(tokens, Some(&s)).unwrap();
+        println!("{}", expr);
+        Ok(())
+    }
+
+    #[test]
+    fn test_split_union_expr() {
+        let mut candidates = Vec::new();
+        candidates.push(("Patient.telecom.where(system='phone') | Person.telecom.where(system='phone')", 2, vec!["Patient.telecom.where(system='phone')", "Person.telecom.where(system='phone')"]));
+        candidates.push(("a.c", 1, vec!["a.c"]));
+        candidates.push(("a.c | a.r.s ", 2, vec!["a.c", "a.r.s"]));
+        candidates.push(("c.c | (dr.c as CC)", 2, vec!["c.c", "(dr.c as CC)"]));
+        candidates.push(("c.c | ((dr.c as CC) | a.b = 2)", 2, vec!["c.c", "((dr.c as CC) | a.b = 2)"]));
+        candidates.push(("c.c | a.b = \"has an |\"", 2, vec!["c.c", "a.b = \"has an |\""]));
+        candidates.push(("c.c | a.b = 'has an |'", 2, vec!["c.c", "a.b = 'has an |'"]));
+        candidates.push(("c.c | a.b = 'has an \\' escaped char'", 2, vec!["c.c", "a.b = 'has an \\' escaped char'"]));
+        candidates.push(("c.c | (((dr.c as CC)))", 2, vec!["c.c", "(((dr.c as CC)))"]));
+        candidates.push(("Account.subject.where(resolve() is Patient)", 1, vec!["Account.subject.where(resolve() is Patient)"]));
+        for (input, count, expected) in candidates {
+            let parts = split_union_expr(input).unwrap();
+            assert_eq!(count, parts.len());
+            assert_eq!(parts, expected);
+        }
+    }
+
+    #[test]
+    fn test_parse_search_param() {
+        let f = File::open("test_data/fhir.schema-4.0.json").unwrap();
+        let v: Value = serde_json::from_reader(f).unwrap();
+        let sd = parse_res_def(&v).unwrap();
+
+        let doc = doc!{"id": "id1", "code":"_text","base":["DomainResource"],"type":"string"};
+        let spd = parse_search_param(&doc, &sd).unwrap();
+        assert_eq!("_text", &spd.code);
+        assert_eq!(true, spd.multiple_or);
+        assert_eq!(true, spd.multiple_and);
+        assert_eq!(None, spd.components);
+        assert_eq!(None, spd.targets);
+        assert_eq!(SearchParamType::String, spd.param_type);
+        assert_eq!(None, *spd.expressions.get("DomainResource").unwrap());
+
+        let doc = doc!{"id": "id2", "code":"code","base":["AllergyIntolerance","Condition"],"type":"token","expression":"AllergyIntolerance.code | AllergyIntolerance.reaction.substance | Condition.code"};
+        let spd = parse_search_param(&doc, &sd).unwrap();
+        assert_eq!("code", &spd.code);
+        assert_eq!(String::from("AllergyIntolerance.code | AllergyIntolerance.reaction.substance"), spd.expressions.get("AllergyIntolerance").unwrap().as_ref().unwrap().expr);
+        assert_eq!(String::from("Condition.code"), spd.expressions.get("Condition").unwrap().as_ref().unwrap().expr);
+        assert_eq!(SearchParamType::Token, spd.param_type);
     }
 }

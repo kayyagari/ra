@@ -1,3 +1,5 @@
+extern crate core;
+
 use log4rs::append::console::ConsoleAppender;
 use log4rs::Config;
 use log4rs::config::{Appender, Root};

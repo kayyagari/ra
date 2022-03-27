@@ -18,6 +18,8 @@ pub enum RaError {
     // SystemError(String),
     #[error("{0}")]
     SchemaParsingError(String),
+    #[error("{0}")]
+    SearchExprParsingError(String),
     #[error("")]
     SchemaValidationError
 }
@@ -25,6 +27,20 @@ pub enum RaError {
 impl RaError {
     pub fn bad_req<S: AsRef<str>>(msg: S) -> Self {
         Self::BadRequest(String::from(msg.as_ref()))
+    }
+
+    fn to_string(&self) -> String {
+        use RaError::*;
+        let s = match self {
+            DbError(s) => s.as_str(),
+            BadRequest(s) => s.as_str(),
+            NotFound(s) => s.as_str(),
+            SchemaParsingError(s) => s.as_str(),
+            SearchExprParsingError(s) => s.as_str(),
+            SchemaValidationError => "schema validation error"
+        };
+
+        String::from(s)
     }
 }
 

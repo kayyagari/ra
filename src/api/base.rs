@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use rocket::request::{FromRequest, Outcome};
 use std::convert::Infallible;
+use rawbson::Doc;
 use rocket::Request;
 
 use crate::api::bundle;
@@ -15,7 +16,7 @@ use crate::errors::{EvalError, IssueSeverity, IssueType, RaError};
 use crate::rapath::expr::Ast;
 use crate::rapath::parser::parse;
 use crate::rapath::scanner::scan_tokens;
-use crate::res_schema::{parse_res_def, SchemaDef};
+use crate::res_schema::{parse_res_def, parse_search_param, SchemaDef};
 use crate::ResourceDef;
 use crate::utils::test_utils::parse_expression;
 
@@ -127,8 +128,7 @@ impl OperationOutcome {
 
 impl ApiBase {
     pub fn new(db: Barn) -> Result<Self, RaError> {
-        let schema = db.read_schema()?;
-        let schema = parse_res_def(&schema)?;
+        let schema = db.build_schema_def()?;
         Ok(ApiBase{db, schema})
     }
 

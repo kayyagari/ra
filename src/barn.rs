@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fs;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Cursor, Read};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -17,9 +17,9 @@ use ksuid::Ksuid;
 use lazy_static::lazy_static;
 use log::{debug, error, info, trace, warn};
 use rawbson::de::BsonDeserializer;
-use rawbson::DocBuf;
+use rawbson::{Doc, DocBuf};
 use rawbson::elem::Element;
-use rocksdb::{DB, DBCompressionType, Env, Options, WriteBatch};
+use rocksdb::{DB, DBCompressionType, DBIterator, Env, Options, WriteBatch};
 use serde_json::Value;
 use thiserror::private::PathAsDisplay;
 use crate::api::bundle::SearchSet;
@@ -28,7 +28,7 @@ use crate::errors::{EvalError, RaError};
 use crate::rapath::engine::eval;
 use crate::rapath::expr::Ast;
 use crate::rapath::stypes::SystemType;
-use crate::res_schema::{parse_res_def, ResourceDef, SchemaDef};
+use crate::res_schema::{parse_res_def, parse_search_param, ResourceDef, SchemaDef};
 use crate::utils::resources::{get_default_schema_bytes, get_default_search_param_bytes, parse_compressed_json};
 use crate::utils;
 use crate::utils::{bson_utils, get_crc_hash, prefix_id};
@@ -36,6 +36,7 @@ use crate::utils::{bson_utils, get_crc_hash, prefix_id};
 mod insert;
 
 const RA_METADATA_KEY_PREFIX: &str = "_____RA_METADATA_KEY_PREFIX_____";
+pub(crate) const CF_INDEX: &str = "index";
 
 lazy_static! {
  static ref SCHEMA_ID: [u8; 24] = {
@@ -51,6 +52,11 @@ pub struct Barn {
     env: Env,
     db: DB,
     opts: Options
+}
+
+struct ResourceIterator<'d> {
+    inner: DBIterator<'d>,
+    prefix: &'d[u8]
 }
 
 impl Barn {
@@ -94,8 +100,7 @@ impl Barn {
         let env = Env::default().unwrap();
         info!("opened database environment");
         res_db_opts.set_env(&env);
-        let mut res_db = DB::open(res_db_opts, &db_path).unwrap();
-
+        let mut res_db = DB::open_cf(res_db_opts, &db_path, &[CF_INDEX]).unwrap();
         let b = Barn {
             env,
             db: res_db,
@@ -163,6 +168,23 @@ impl Barn {
         }
 
         Err(RaError::DbError(String::from("schema entry exists but there is no data")))
+    }
+
+    fn get_search_params(&self) -> ResourceIterator {
+        let prefix = &*SEARCH_PARAM_RESOURCE_KEY_PREFIX;
+        let inner: rocksdb::DBIterator = self.db.prefix_iterator(prefix);
+        ResourceIterator{inner, prefix}
+    }
+
+    pub fn build_schema_def(&self) -> Result<SchemaDef, RaError> {
+        let schema = self.read_schema()?;
+        let mut schema = parse_res_def(&schema)?;
+        let iter = self.get_search_params();
+        for doc in iter {
+            let spd = parse_search_param(&doc, &schema)?;
+            schema.add_search_param(spd);
+        }
+        Ok(schema)
     }
 
     pub fn insert(&self, res_def: &ResourceDef, mut data: Document, sd: &SchemaDef) -> Result<Document, RaError> {
@@ -243,6 +265,38 @@ impl Barn {
         wb.put(&pk, vec_bytes.as_slice());
 
         Ok(data)
+    }
+
+    pub fn scan_index(&self, eval_fn: fn(key: &[u8], value: &[u8]) -> Result<Option<bool>, EvalError>) {
+        let hash: [u8; 4] = [1,2,3,4];
+        let iter: rocksdb::DBIterator = self.db.prefix_iterator(&hash);
+        for (k, v) in iter {
+            let r = eval_fn(&k, &v);
+        }
+    }
+}
+
+impl Iterator for ResourceIterator<'_> {
+    type Item = Document;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let kv = self.inner.next();
+        if let Some(mut kv) = kv {
+            if !kv.0.starts_with(self.prefix) {
+                return None;
+            }
+            // a rawbson::DocBuf can be returned but the accessor
+            // methods on it return Option and it is a bit of inconvenience.
+            // trading this inconvenience for copying of memory
+            let mut c = Cursor::new(kv.1);
+            let doc = Document::from_reader(&mut c);
+            if let Err(e) = doc {
+                warn!("invalid document data {}", e.to_string());
+                return None;
+            }
+            return Some(doc.unwrap());
+        }
+        None
     }
 }
 

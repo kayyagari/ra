@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use crate::filter_scanner::ComparisonOperator;
 use crate::dtypes::DataType;
 use chrono::{DateTime, Utc};
+use crate::errors::RaError;
 
 pub struct SearchExpr {
     name: String,
@@ -40,34 +41,52 @@ pub struct Uri {
     is_url: bool
 }
 
-#[allow(non_camel_case_types)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum SearchParamType {
-    NUMBER(f64),
-    DATE(DateTime<Utc>),
-    STRING(String),
-    TOKEN(Token),
-    REFERENCE(Reference),
-    COMPOSITE(String), // still unclear on how to parse the composite value
-    QUANTITY(Quantity),
-    URI(Uri),
-    SPECIAL
+    Number,
+    Date,
+    String,
+    Token,
+    Reference,
+    Composite,
+    Quantity,
+    Uri,
+    Special
+}
+
+impl SearchParamType {
+    pub fn from(name: &str) -> Result<SearchParamType, RaError> {
+        use SearchParamType::*;
+        match name {
+            "number" => Ok(Number),
+            "date" => Ok(Date),
+            "string" => Ok(String),
+            "token" => Ok(Token),
+            "reference" => Ok(Reference),
+            "composite" => Ok(Composite),
+            "quantity" => Ok(Quantity),
+            "uri" => Ok(Uri),
+            "special" => Ok(Special),
+            _ => Err(RaError::SchemaParsingError(format!("unknown search parameter type {}", name)))
+        }
+    }
 }
 
 #[allow(non_camel_case_types)]
 pub enum Modifier {
-    TEXT,
-    NOT,
-    ABOVE,
-    BELOW,
-    IN,
-    NOT_IN,
-    OF_TYPE,
-    MISSING,
-    EXACT,
-    CONTAINS,
-    IDENTIFIER,
-    RES_TYPE(String), // e.g :Patient used to define the type of reference (subject:Patient=<ID>)
-    NONE
+    Text,
+    Not,
+    Above,
+    Below,
+    In,
+    NotIn,
+    OfType,
+    Missing,
+    Exact,
+    Contains,
+    Identifier,
+    ResType(String), // e.g :patient used to define the type of reference (subject:patient=<id>)
+    None
 }
 
 #[derive(Debug)]
