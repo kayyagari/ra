@@ -222,7 +222,20 @@ impl<'a> Parser<'a> {
                 _ => {
                     Err(ParseError::new(format!("invalid function name {}", t)))
                 }
-            }
+            },
+            LEFT_BRACKET => {
+                let (n, pos) = self.advance();
+                if let NUMBER(n) = n {
+                    let index = n.parse::<usize>();
+                    if let Err(e) = index {
+                        return Err(ParseError::new(format!("invalid array index {} in expression at pos {}", n, pos)));
+                    }
+                    let index = index.unwrap();
+                    self.consume(&RIGHT_BRACKET);
+                    return Ok(Ast::ArrayIndex { left, index });
+                }
+                return Err(ParseError::new(format!("invalid index value {} in array expression at pos {}", n, pos)));
+            },
             _ => {
                 Err(ParseError::new(format!("unexpected token on rhs {}", t)))
             }
@@ -360,8 +373,12 @@ mod tests {
     #[test]
     fn test_parsing_as_expr() {
         let mut exprs = Vec::new();
-        exprs.push("DeviceRequest.code as CodeableConcept");
+        exprs.push("DeviceRequest.code.as(CodeableConcept)"); // as a function without space between 'as' and '('
+        exprs.push("DeviceRequest.code.as (CodeableConcept)"); // as a function with space between 'as' and '('
+        exprs.push("DeviceRequest.code as CodeableConcept"); // as a non-function
         exprs.push("code as CodeableConcept");
+        exprs.push("name[0]");
+        exprs.push("Patient.name[0]");
         for input in exprs {
             let tokens = scan_tokens(input).unwrap();
             let result = parse(tokens);

@@ -31,8 +31,9 @@ pub enum Ast<'a> {
         // func: Box<dyn EvalFunc<'a>>,
         // args: Rc<Vec<Ast<'a>>>
     },
-    Index {
-        idx: u32
+    ArrayIndex {
+        left: Box<Ast<'a>>, // not calling it LHS
+        index: usize
     },
     Literal {
         val: Rc<SystemType<'a>>
@@ -106,7 +107,7 @@ impl<'a, 'b> Display for Ast<'a> {
             SubExpr{..} => "SubExpr",
             Binary{..} => "Binary",
             Function{..} => "Function",
-            Index{..} => "Index",
+            ArrayIndex {..} => "ArrayIndex",
             Literal{..} => "Literal",
             EnvVariable{..} => "EnvVariable",
             TypeCast {..} => "TypeCast",

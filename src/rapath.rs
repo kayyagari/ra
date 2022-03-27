@@ -8,7 +8,7 @@ pub mod stypes;
 pub mod expr;
 pub mod engine;
 mod functions;
-mod element_utils;
+pub mod element_utils;
 mod operations;
 
 pub type EvalResult<'a> = Result<Rc<SystemType<'a>>, EvalError>;

@@ -417,8 +417,27 @@ impl Scanner<'_> {
                         }
                         else {
                             let id = self.read_identifier(c, pos);
-                            if let Some(k) = KEYWORDS.get(id.to_lowercase().as_str()) {
-                                self.convert_keyword(&mut tokens, &id, k, pos);
+                            let id_lowercase = id.to_lowercase();
+                            let id_lowercase = id_lowercase.as_str();
+                            if let Some(k) = KEYWORDS.get(id_lowercase) {
+                                let mut skip = false;
+                                // IS and AS can also be used as function calls
+                                if id_lowercase == "is" || id_lowercase == "as" || id_lowercase == "contains" {
+                                    let prev = tokens.back();
+                                    let mut prev_dot = false;
+                                    if let Some((prev_token, _)) = prev {
+                                        prev_dot = prev_token == &DOT;
+                                    }
+
+                                    if prev_dot { // if this is NOT '.' then it is treated as an identifier instead of a keyword
+                                        tokens.push_back((IDENTIFIER(id.clone()), pos));
+                                        skip = true;
+                                    }
+                                }
+
+                                if !skip {
+                                    self.convert_keyword(&mut tokens, &id, k, pos);
+                                }
                             }
                             else {
                                 tokens.push_back((IDENTIFIER(id), pos));

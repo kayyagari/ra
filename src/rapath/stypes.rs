@@ -4,7 +4,7 @@ use std::fmt::{Display, format};
 use std::ops::Add;
 use std::rc::Rc;
 
-use chrono::{DateTime, NaiveTime, Utc};
+use chrono::{DateTime, Duration, NaiveTime, Timelike, Utc};
 use log::warn;
 use rawbson::elem::Element;
 use serde_json::ser::Formatter;
@@ -65,6 +65,10 @@ impl SystemDateTime {
 
     pub fn format(&self, fmt: &str) -> String {
         self.val.format(fmt).to_string()
+    }
+
+    pub fn millis(&self) -> i64 {
+        self.val.timestamp_millis()
     }
 
     #[inline]
@@ -132,6 +136,14 @@ impl SystemTime {
 
     pub fn format(&self, fmt: &str) -> String {
         self.val.format(fmt).to_string()
+    }
+
+    pub fn millis(&self) -> i64 {
+        let hmillis = self.val.hour() as i64 * 60 * 60 * 1000;
+        let minmillis = self.val.minute() as i64 * 60 * 1000;
+        let secmillis = self.val.second() as i64 * 1000;
+        let millis = self.val.nanosecond() as i64 / 1_000_000;
+        hmillis + minmillis + secmillis + millis
     }
 
     pub fn equals<'b>(lhs: &SystemTime, rhs: &SystemTime) -> SystemType<'b> {
@@ -385,6 +397,15 @@ impl<'b> Collection<'b> {
             if v.len() == 1 {
                 return Some(Rc::clone(&v[0]));
             }
+        }
+
+        None
+    }
+
+    #[inline]
+    pub fn get(&self, index: usize) -> Option<Rc<SystemType<'b>>> {
+        if let Some(v) = &self.val {
+            return Some(Rc::clone(&v[index]));
         }
 
         None

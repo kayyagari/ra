@@ -13,6 +13,7 @@ use crate::rapath::functions::where_::where_;
 use crate::rapath::expr::{Ast, CmpFunc, Operator};
 use crate::rapath::expr::Ast::*;
 use crate::rapath::expr::Operator::*;
+use crate::rapath::functions::array_index;
 use crate::rapath::functions::cast_as::cast;
 use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, SystemTypeType};
 
@@ -126,6 +127,10 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
             },
             Function {func} => {
                 func.eval_func(base)
+            },
+            ArrayIndex {left, index} => {
+                let lb = eval(left, base)?;
+                array_index(lb, *index)
             },
             TypeCast {at_name, at_and_type_name, type_name} => {
                 let el = get_attribute_to_cast_to(base, at_name, at_and_type_name)?;
