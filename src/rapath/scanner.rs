@@ -429,7 +429,7 @@ impl Scanner<'_> {
                                         prev_dot = prev_token == &DOT;
                                     }
 
-                                    if prev_dot { // if this is NOT '.' then it is treated as an identifier instead of a keyword
+                                    if prev_dot { // if this is '.' then it is treated as an identifier instead of a keyword
                                         tokens.push_back((IDENTIFIER(id.clone()), pos));
                                         skip = true;
                                     }
