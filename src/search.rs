@@ -67,7 +67,7 @@ impl SearchParamType {
             "quantity" => Ok(Quantity),
             "uri" => Ok(Uri),
             "special" => Ok(Special),
-            _ => Err(RaError::SchemaParsingError(format!("unknown search parameter type {}", name)))
+            _ => Err(RaError::SearchParamParsingError(format!("unknown search parameter type {}", name)))
         }
     }
 }

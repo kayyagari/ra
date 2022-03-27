@@ -19,7 +19,7 @@ pub enum RaError {
     #[error("{0}")]
     SchemaParsingError(String),
     #[error("{0}")]
-    SearchExprParsingError(String),
+    SearchParamParsingError(String),
     #[error("")]
     SchemaValidationError
 }
@@ -36,7 +36,7 @@ impl RaError {
             BadRequest(s) => s.as_str(),
             NotFound(s) => s.as_str(),
             SchemaParsingError(s) => s.as_str(),
-            SearchExprParsingError(s) => s.as_str(),
+            SearchParamParsingError(s) => s.as_str(),
             SchemaValidationError => "schema validation error"
         };
 

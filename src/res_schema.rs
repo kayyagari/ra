@@ -405,12 +405,12 @@ pub fn parse_search_param(param_value: &Document, sd: &SchemaDef) -> Result<Sear
 fn parse_search_param_expression<'s>(expr: &str, code: &str, sd: &'s SchemaDef) -> Result<Ast<'s>, RaError> {
     let tokens = scan_tokens(expr);
     if let Err(e) = tokens {
-        return Err(RaError::SearchExprParsingError(format!("invalid expression {} of search param {} {}", expr, code, e.to_string())));
+        return Err(RaError::SearchParamParsingError(format!("invalid expression {} of search param {} {}", expr, code, e.to_string())));
     }
 
     let ast = parse_with_schema(tokens.unwrap(), Some(sd));
     if let Err(e) = ast {
-        return Err(RaError::SearchExprParsingError(format!("unable to parse the expression {} of search param {} {}", expr, code, e.to_string())));
+        return Err(RaError::SearchParamParsingError(format!("unable to parse the expression {} of search param {} {}", expr, code, e.to_string())));
     }
 
     Ok(ast.unwrap())
@@ -442,7 +442,7 @@ fn split_union_expr(expr: &str) -> Result<Vec<&str>, RaError> {
                     ')' => {
                         let p = stack.pop_front().unwrap_or(' ');
                         if p != '(' {
-                            return Err(RaError::SearchExprParsingError(format!("invalid expression {} mismatched parentheses", expr)));
+                            return Err(RaError::SearchParamParsingError(format!("invalid expression {} mismatched parentheses", expr)));
                         }
                     },
                     '"' | '\'' => {
@@ -471,7 +471,7 @@ fn split_union_expr(expr: &str) -> Result<Vec<&str>, RaError> {
     }
 
     if !stack.is_empty() {
-        return Err(RaError::SearchExprParsingError(format!("invalid expression {} in search parameter", expr)));
+        return Err(RaError::SearchParamParsingError(format!("invalid expression {} in search parameter", expr)));
     }
 
     if parts.is_empty() {

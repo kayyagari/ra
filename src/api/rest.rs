@@ -119,7 +119,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaError {
                 oo = OperationOutcome::new_error(IssueType::Processing, "schema validation failed");
                 status = Status::InternalServerError;
             },
-            RaError::SearchExprParsingError(s) => {
+            RaError::SearchParamParsingError(s) => {
                 oo = OperationOutcome::new_error(IssueType::Processing, s);
                 status = Status::InternalServerError;
             },
