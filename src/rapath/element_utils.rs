@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::rc::Rc;
 use rawbson::elem::{Element, ElementType};
-use crate::errors::EvalError;
+use crate::errors::{EvalError, RaError};
 use crate::rapath::EvalResult;
 use crate::rapath::stypes::{SystemNumber, SystemString, SystemType, Collection};
 use log::error;
@@ -313,4 +313,64 @@ pub fn get_attribute_to_cast_to<'b>(base: Rc<SystemType<'b>>, at_name: &str, at_
     }
 
     Ok(base)
+}
+
+/// gathers all the string values, including from the nested elements
+// l = long
+// s = short
+pub fn gather_string_values<'l, 's>(el: &'l Element<'s>, values: &mut Vec<&'s str>) -> Result<(), EvalError> {
+    match el.element_type() {
+        ElementType::EmbeddedDocument => {
+            let doc = el.as_document()?;
+            for item in doc {
+                if let Ok((_, item)) = item {
+                    gather_string_values(&item, values);
+                }
+            }
+        },
+        ElementType::Array => {
+            let arr = el.as_array()?;
+            for item in arr {
+                if let Ok(item) = item {
+                    gather_string_values(&item, values);
+                }
+            }
+        },
+        ElementType::String => {
+            let v = el.as_str()?;
+            values.push(v);
+        },
+        _ => {}
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use bson::doc;
+    use rawbson::DocBuf;
+    use super::*;
+
+    #[test]
+    fn test_gather_string_values() {
+        let doc = doc!{"use":"official","family":"A","given":["Kanth"], "number": 2};
+        let doc = DocBuf::from_document(&doc);
+        let el = Element::new(ElementType::EmbeddedDocument, doc.as_bytes());
+        let mut actual_values = Vec::new();
+        gather_string_values(&el, &mut actual_values).unwrap(); // unwrapping to catch error
+
+        let expected_values = vec!["official", "A", "Kanth"];
+        assert_eq!(expected_values.len(), actual_values.len());
+        for e in expected_values {
+            let mut found = false;
+            for a in &actual_values {
+                if e == *a {
+                    found = true;
+                    break;
+                }
+            }
+            assert!(found);
+        }
+    }
 }
