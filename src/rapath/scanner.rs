@@ -610,7 +610,7 @@ impl Scanner<'_> {
     #[inline]
     fn parse_time(&self, time_str: &str, mut precision: u8) -> Result<(NaiveTime, u8), DateTimeParseError> {
         if !TIME_RE.is_match(time_str) {
-            return Err(DateTimeParseError::new("invalid time"));
+            return Err(DateTimeParseError::new("invalid time string"));
         }
 
         let mut hour: Option<u32> = None;
@@ -640,8 +640,11 @@ impl Scanner<'_> {
         let min = min.unwrap_or(0);
         let sec = sec.unwrap_or(0);
         let milli = milli.unwrap_or(0);
-        let nt = NaiveTime::from_hms_milli(hour, min, sec, milli);
-        Ok((nt, precision))
+        let nt = NaiveTime::from_hms_milli_opt(hour, min, sec, milli);
+        if let None = nt {
+            return Err(DateTimeParseError::new(format!("invalid milliseconds {} in time string, overflow occured", milli)));
+        }
+        Ok((nt.unwrap(), precision))
     }
 
     /// parses the format YYYY-MM-DDThh:mm:ss.fff(+|-)hh:mm
