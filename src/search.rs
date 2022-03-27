@@ -1,10 +1,13 @@
-use crate::res_schema::{PropertyDef};
+use crate::res_schema::PropertyDef;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use crate::filter_scanner::ComparisonOperator;
+use filter_scanner::ComparisonOperator;
 use crate::dtypes::DataType;
 use chrono::{DateTime, Utc};
 use crate::errors::RaError;
+
+mod filter_scanner;
+mod filter_parser;
 
 pub struct SearchExpr {
     name: String,

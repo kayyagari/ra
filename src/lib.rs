@@ -14,8 +14,6 @@ mod context;
 pub mod errors;
 pub mod barn;
 mod utils;
-mod filter_scanner;
-mod filter_parser;
 mod dtypes;
 mod search;
 pub mod rapath;

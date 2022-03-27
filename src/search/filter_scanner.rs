@@ -39,7 +39,7 @@ struct Scanner {
     errors: Vec<String>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ComparisonOperator {
     EQ,
     NE,
@@ -302,7 +302,7 @@ impl Scanner {
 
 #[cfg(test)]
 mod tests {
-    use crate::filter_scanner::scan_tokens;
+    use crate::search::filter_scanner::scan_tokens;
     use std::process::Command;
 
     struct FilterCandidate {
