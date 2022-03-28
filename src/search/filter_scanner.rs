@@ -282,33 +282,21 @@ impl Scanner<'_> {
 #[cfg(test)]
 mod tests {
     use std::process::Command;
-
     use crate::search::filter_scanner::scan_tokens;
 
-    struct FilterCandidate {
-        filter: String,
-        token_count: usize,
-        error_count: usize
-    }
     #[test]
     fn test_scaning() {
-        let mut candidates: Vec<FilterCandidate> = vec!();
-        let c1 = FilterCandidate{ filter: String::from("name eq \"abcd\""), token_count: 3, error_count: 0};
-        candidates.push(c1);
-        let c2 = FilterCandidate{ filter: String::from("not(name eq \"ab\\\"cd\")"), token_count: 6, error_count: 0};
-        candidates.push(c2);
-        let c3 = FilterCandidate{ filter: String::from("name eq \"abcd"), token_count: 0, error_count: 1};
-        candidates.push(c3);
-        let c4 = FilterCandidate{ filter: String::from("weight ge 0.7 and height le 20"), token_count: 7, error_count: 0};
-        candidates.push(c4);
-        let c5 = FilterCandidate{ filter: String::from("not(person[id eq 1].weight ge 0.7 and height le 20)"), token_count: 16, error_count: 0};
-        candidates.push(c5);
-        let c6 = FilterCandidate{ filter: String::from("not(person[id eq 1].weight ge 0.7 and (address.ishome eq false))"), token_count: 18, error_count: 0};
-        candidates.push(c6);
+        let mut candidates = vec!();
+        candidates.push(("name eq \"abcd\"", 3, 0));
+        candidates.push(("not(name eq \"ab\\\"cd\")", 6, 0));
+        candidates.push(("name eq \"abcd", 0, 1));
+        candidates.push(("weight ge 0.7 and height le 20", 7, 0));
+        candidates.push(("not(person[id eq 1].weight ge 0.7 and height le 20)", 16, 0));
+        candidates.push(("not(person[id eq 1].weight ge 0.7 and (address.ishome eq false))", 18, 0));
 
         println!("begin scanning");
-        for c in &candidates {
-            let r = scan_tokens(&c.filter);
+        for (input, token_count, error_count) in candidates {
+            let r = scan_tokens(input);
             if r.is_ok() {
                 let tokens = r.as_ref().unwrap();
                 println!("{:?}", &tokens);
@@ -317,14 +305,14 @@ mod tests {
                 let se = r.as_ref().err().unwrap();
                 println!("{:?}", &se);
             }
-            if c.error_count != 0 {
+            if error_count != 0 {
                 let se = r.err().unwrap();
-                assert_eq!(c.error_count, se.errors.len());
+                assert_eq!(error_count, se.errors.len());
             }
             else {
                 assert!(r.is_ok());
                 let tokens = r.unwrap();
-                assert_eq!(c.token_count, tokens.len());
+                assert_eq!(token_count, tokens.len());
             }
         }
     }
