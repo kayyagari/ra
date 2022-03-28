@@ -1,7 +1,11 @@
 use std::collections::HashMap;
-use lazy_static::lazy_static;
-use std::fmt::{Display, Formatter};
 use std::error::Error;
+use std::fmt::{Display, Formatter};
+use std::iter::Peekable;
+use std::str::CharIndices;
+
+use lazy_static::lazy_static;
+
 use crate::errors::ScanError;
 
 lazy_static! {
@@ -31,11 +35,8 @@ lazy_static! {
 }
 
 #[derive(Debug)]
-struct Scanner {
-    start: usize,
-    current: usize,
-    len: usize,
-    filter: Vec<char>,
+struct Scanner<'a> {
+    filter: Peekable<CharIndices<'a>>,
     errors: Vec<String>
 }
 
@@ -83,15 +84,9 @@ pub enum TokenType {
     EOF
 }
 
-pub fn scan_tokens(filter: &String) -> Result<Vec<Token>, ScanError> {
-    // this copying is unavoidable because no other format gives the
-    // ability to index into the input string
-    let chars: Vec<char> = filter.chars().collect();
+pub fn scan_tokens(filter: &str) -> Result<Vec<Token>, ScanError> {
     let mut scanner = Scanner {
-        start: 0,
-        current: 0,
-        len: chars.len(),
-        filter: chars,
+        filter: filter.char_indices().peekable(),
         errors: vec!(),
     };
 
@@ -144,61 +139,68 @@ impl Display for TokenType {
     }
 }
 
-impl Scanner {
+impl Scanner<'_> {
     fn scan(&mut self, tokens: &mut Vec<Token>) {
-        while !self.is_at_end() {
-            self.start = self.current;
-            let t = self.scan_token();
-            if t.is_some() {
-                tokens.push(t.unwrap());
-            }
-        }
-    }
-
-    fn scan_token(&mut self) -> Option<Token> {
-        let c = self.advance();
-        let mut t: Option<Token> = Option::None;
-        match c {
-            '(' => {
-                t = Option::Some(Token { val: String::from('('), ttype: TokenType::LEFT_PAREN });
-            }
-            ')' => {
-                t = Option::Some(Token { val: String::from(')'), ttype: TokenType::RIGHT_PAREN });
-            }
-            '[' => {
-                t = Option::Some(Token { val: String::from('['), ttype: TokenType::LEFT_BRACKET });
-            }
-            ']' => {
-                t = Option::Some(Token { val: String::from(']'), ttype: TokenType::RIGHT_BRACKET });
-            }
-            '"' => {
-                t = self.read_string();
-            }
-            ' ' | '\t' | '\n' => {
-                // eat it
-            }
-            _ => {
-                t = self.read_identifier();
-            }
-        }
-
-        t
-    }
-
-    fn read_identifier(&mut self) -> Option<Token> {
-        let mut c: char;
-        while !self.is_at_end() {
-            c = self.peek();
-            match c {
-                ' ' | '\t' | '[' | '(' | ')' | ']' => {
+        loop {
+            match self.filter.next() {
+                Some((pos, c)) => {
+                    match c {
+                        '(' => {
+                            tokens.push(Token { val: String::from('('), ttype: TokenType::LEFT_PAREN });
+                        }
+                        ')' => {
+                            tokens.push(Token { val: String::from(')'), ttype: TokenType::RIGHT_PAREN });
+                        }
+                        '[' => {
+                            tokens.push(Token { val: String::from('['), ttype: TokenType::LEFT_BRACKET });
+                        }
+                        ']' => {
+                            tokens.push(Token { val: String::from(']'), ttype: TokenType::RIGHT_BRACKET });
+                        }
+                        '"' => {
+                            let t = self.read_string(pos);
+                            if let Some(t) = t {
+                                tokens.push(t);
+                            }
+                        }
+                        ' ' | '\t' | '\n' => {
+                            // eat it
+                        }
+                        _ => {
+                            let t = self.read_identifier(c, pos);
+                            if let Some(t) = t {
+                                tokens.push(t);
+                            }
+                        }
+                    }
+                },
+                None => {
                     break;
                 }
-                _ => {}
             }
-            self.advance();
+        }
+    }
+
+    fn read_identifier(&mut self, start: char, pos: usize) -> Option<Token> {
+        let mut val = String::with_capacity(16);
+        val.push(start);
+        loop {
+            match self.filter.peek() {
+                Some((pos, c)) => {
+                    match c {
+                        ' ' | '\t' | '[' | '(' | ')' | ']' => {
+                            break;
+                        }
+                        _ => {
+                            val.push(*c);
+                            self.filter.next();
+                        }
+                    }
+                },
+                None => { break; }
+            }
         }
 
-        let mut val: String = self.filter[self.start .. self.current].iter().collect();
         let mut tt: TokenType = TokenType::IDENTIFIER;
 
         match val.to_lowercase().as_str() {
@@ -210,100 +212,78 @@ impl Scanner {
                 if OPERATORS.get(s).is_some() {
                     val = val.to_lowercase();
                     tt = TokenType::COMPARISON_OPERATOR;
-                }
-                else if s == "false" || s == "true" {
+                } else if s == "false" || s == "true" {
                     val = val.to_lowercase();
                     tt = TokenType::LITERAL;
-                }
-                else {
+                } else {
                     let mut chars = s.char_indices();
                     let (_, c) = chars.next().unwrap();
                     if c.is_ascii_digit() {
                         tt = TokenType::LITERAL;
-                    }
-                    else if c == '.' { // likely a decimal number or an attribute path
+                    } else if c == '.' { // likely a decimal number or an attribute path
                         let next_char = chars.next();
                         if next_char.is_none() {
-                            self.errors.push(format!("invalid identifier '{}' starting at position {}", &s, self.start));
-                            return Option::None;
+                            self.errors.push(format!("invalid identifier '{}' starting at position {}", &s, pos));
+                            return None;
                         }
 
                         let (_, c) = next_char.unwrap();
                         if c.is_ascii_digit() {
                             tt = TokenType::LITERAL;
-                        }
-                        else if c == '_' || c.is_alphabetic() {
+                        } else if c == '_' || c.is_alphabetic() {
                             tt = TokenType::IDENTIFIER_PATH;
-                        }
-                        else {
-                            self.errors.push(format!("invalid identifier '{}' starting at position {}", &s, self.start));
-                            return Option::None;
+                        } else {
+                            self.errors.push(format!("invalid identifier '{}' starting at position {}", &s, pos));
+                            return None;
                         }
                     }
                 }
             }
         }
 
-        Option::Some(Token { val, ttype: tt })
+        Some(Token { val, ttype: tt })
     }
 
-    fn read_string(&mut self) -> Option<Token> {
+    fn read_string(&mut self, start: usize) -> Option<Token> {
         let mut prev: char = '"';
-        let mut c: char = '\0';
-        let mut val: Vec<char> = vec!();
-        while !self.is_at_end() {
-            c = self.peek();
-            if c == '"' && prev != '\\' {
-                break;
-            }
-            c = self.advance();
-            match c {
-                '\\' => {
-                    if prev == '\\' {
-                        val.push(c);
+        let mut s = String::with_capacity(16);
+        loop {
+            match self.filter.next() {
+                Some((pos, c)) => {
+                    if c == '"' && prev != '\\' {
+                        break;
                     }
-                }
-                _ => {
-                    val.push(c);
+                    if prev == '\\' {
+                        s.pop(); // remove the \
+                        match c {
+                            'r' => s.push('\r'),
+                            'n' => s.push('\n'),
+                            't' => s.push('\t'),
+                            'f' => s.push_str("\\f"),
+                            _ => {
+                                s.push(c);
+                            }
+                        }
+                    } else {
+                        s.push(c);
+                    }
+                    prev = c;
+                },
+                None => {
+                    self.errors.push(format!("invalid string '{}' starting at position {}", &s, start));
+                    break;
                 }
             }
-            prev = c;
         }
-
-        if self.is_at_end() || c != '"' {
-            let s: String = val.iter().collect();
-            self.errors.push(format!("invalid string '{}' starting at position {}", s, self.start));
-            return Option::None;
-        }
-
-        self.advance();
-
-        Option::Some(Token { val: val.iter().collect(), ttype: TokenType::LITERAL })
-    }
-
-    fn advance(&mut self) -> char {
-        let c = self.filter[self.current];
-        self.current += 1;
-        c
-    }
-
-    fn peek(&self) -> char {
-        if self.is_at_end() {
-            return '\0';
-        }
-
-        self.filter[self.current]
-    }
-
-    fn is_at_end(&self) -> bool {
-        self.current >= self.len
+        Some(Token { val: s, ttype: TokenType::LITERAL })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::search::filter_scanner::scan_tokens;
     use std::process::Command;
+
+    use crate::search::filter_scanner::scan_tokens;
 
     struct FilterCandidate {
         filter: String,
