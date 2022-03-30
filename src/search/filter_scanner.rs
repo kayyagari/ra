@@ -96,6 +96,9 @@ pub fn scan_tokens(filter: &str) -> Result<Vec<Token>, ScanError> {
         return Err(ScanError{errors: scanner.errors});
     }
 
+    let eof = Token{ val: String::from(""), ttype: TokenType::EOF};
+    tokens.push(eof);
+
     Ok(tokens)
 }
 
@@ -312,7 +315,7 @@ mod tests {
             else {
                 assert!(r.is_ok());
                 let tokens = r.unwrap();
-                assert_eq!(token_count, tokens.len());
+                assert_eq!(token_count, tokens.len() - 1); // excluding the EOF token
             }
         }
     }

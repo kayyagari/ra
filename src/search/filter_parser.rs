@@ -24,7 +24,7 @@ pub enum FilterType {
 
 #[derive(Debug)]
 pub enum Filter {
-    SimpleFilter {
+    StringFilter {
         identifier: String,
         operator: ComparisonOperator,
         value: String
@@ -51,7 +51,7 @@ impl Filter {
     fn get_type(&self) -> FilterType {
         use Filter::*;
         match self {
-            SimpleFilter {..} => Simple,
+            StringFilter {..} => Simple,
             ConditionalFilter {..} => Conditional,
             AndFilter {..} => And,
             OrFilter {..} => Or,
@@ -62,7 +62,7 @@ impl Filter {
     fn to_string(&self) -> String {
         use Filter::*;
         match self {
-            SimpleFilter {identifier, operator, value} => format!("({} {:?} {})", identifier, operator, value),
+            StringFilter {identifier, operator, value} => format!("({} {:?} {})", identifier, operator, value),
             ConditionalFilter {identifier, condition,
                      id_path, operator,
                      value} => format!("({}[{}]{} {:?} {})", identifier, condition.to_string(), id_path, operator, value),
@@ -96,11 +96,7 @@ impl Filter {
 }
 
 pub fn parse(mut tokens: Vec<Token>) -> Result<Filter, ParseError> {
-    let eof = Token{ val: String::from(""), ttype: TokenType::EOF};
-    tokens.push(eof);
-
     let mut p = Parser{ tokens, current: 0, open_paren_count: 0, open_bracket_count: 0};
-
     p.parse()
 }
 
@@ -219,7 +215,7 @@ impl Parser {
             return Ok(ce);
         }
 
-        let se = Filter::SimpleFilter {identifier: id, operator: *op, value: va.val.clone()};
+        let se = Filter::StringFilter {identifier: id, operator: *op, value: va.val.clone()};
         Ok(se)
     }
 
