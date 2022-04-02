@@ -34,6 +34,7 @@ use crate::utils;
 use crate::utils::{bson_utils, get_crc_hash, prefix_id};
 
 mod insert;
+pub mod index_scanners;
 
 const RA_METADATA_KEY_PREFIX: &str = "_____RA_METADATA_KEY_PREFIX_____";
 pub(crate) const CF_INDEX: &str = "index";

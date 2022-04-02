@@ -908,7 +908,7 @@ mod tests {
         }
 
         let n = 200;
-        println!("testing scanner with {} generated filters", n);
+        println!("testing scanner with {} generated index_scanners", n);
         for _ in 1..n {
             let out = abnfgen.output().unwrap();
             let filter = String::from_utf8(out.stdout).unwrap();
