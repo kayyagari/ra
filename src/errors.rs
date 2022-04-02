@@ -67,6 +67,18 @@ impl ParseError {
     }
 }
 
+impl From<ScanError> for ParseError {
+    fn from(se: ScanError) -> Self {
+        let mut msg = String::with_capacity(128);
+        for e in &se.errors {
+            msg.push_str(e);
+            msg.push('\n');
+        }
+        msg.remove(msg.len() -1);
+        ParseError::new(msg)
+    }
+}
+
 #[derive(Debug)]
 pub struct EvalError {
     msg: String
