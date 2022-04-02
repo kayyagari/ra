@@ -18,7 +18,6 @@ use crate::rapath::parser::parse;
 use crate::rapath::scanner::scan_tokens;
 use crate::res_schema::{parse_res_def, parse_search_param, SchemaDef};
 use crate::ResourceDef;
-use crate::utils::test_utils::parse_expression;
 
 pub struct ApiBase {
     db: Barn,
