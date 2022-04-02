@@ -4,7 +4,7 @@ use bson::{Bson, bson, Document};
 use bson::spec::ElementType;
 use chrono::Utc;
 use ksuid::Ksuid;
-use log::debug;
+use log::{debug, trace};
 use rawbson::elem::Element;
 use rocksdb::WriteBatch;
 use crate::barn::{Barn, CF_INDEX};
@@ -58,7 +58,7 @@ impl Barn {
 
         let pk = res_def.new_id(ksid.as_bytes());
         wb.put(&pk, vec_bytes.as_slice());
-        self.index_searchparams(wb, &pk, &vec_bytes, res_def, sd);
+        self.index_searchparams(wb, &pk, &vec_bytes, res_def, sd)?;
 
         // handle references
         for (ref_prop, _) in &res_def.ref_props {
@@ -126,12 +126,14 @@ impl Barn {
             return Ok(());
         }
         let search_params = search_params.unwrap();
+        //println!("{:?}", search_params.iter().map(|e| e.0.to_string()).collect::<Vec<String>>());
         let cf = self.db.cf_handle(CF_INDEX).unwrap();
         let wrapped_sd = Some(sd);
         for (code, param_id) in search_params {
             let spd = sd.get_search_param(*param_id).unwrap();
             let expr = spd.expressions.get(&rd.name);
             let expr = expr.unwrap().as_ref().unwrap();
+            //debug!("evaluating expression {} of search param {}", expr.expr, code);
             let tokens = scan_tokens(expr.expr.as_str()).unwrap(); // the expression was already validated at the time of building schema
             let ast = parse_with_schema(tokens, wrapped_sd).unwrap();
             let result = eval(&ast, Rc::clone(&base))?;
@@ -242,11 +244,13 @@ fn format_index_row(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &Se
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::fs::File;
     use std::path::PathBuf;
     use bson::doc;
     use rawbson::DocBuf;
     use serde_json::Value;
+    use crate::configure_log4rs;
     use crate::rapath::stypes::SystemString;
     use crate::res_schema::{parse_res_def, parse_search_param};
     use crate::utils::test_utils::read_patient;
@@ -283,16 +287,12 @@ mod tests {
 
     #[test]
     fn test_insert() -> Result<(), anyhow::Error> {
+        //configure_log4rs();
         let path = PathBuf::from("/tmp/insert_test_insert");
         std::fs::remove_dir_all(&path);
         let barn = Barn::open_with_default_schema(&path)?;
         let sd = barn.build_schema_def()?;
-        let search_params = sd.get_search_params_of(&String::from("Patient")).unwrap();
-        // for (code, id) in search_params {
-        //     println!("{} {}", code, id);
-        // }
-        let spd = sd.search_params.get(search_params.get("family").unwrap()).unwrap();
-        let expr = spd.expressions.get("Patient").unwrap().as_ref().unwrap();
+        let expr = sd.get_search_param_expr_for_res(&String::from("family"), &String::from("Patient")).unwrap();
         let patient_schema = sd.resources.get("Patient").unwrap();
         let data = read_patient();
         let data = bson::to_document(&data).unwrap();
@@ -303,6 +303,18 @@ mod tests {
 
         let cf = barn.db.cf_handle(CF_INDEX).unwrap();
         let mut itr = barn.db.prefix_iterator_cf(cf, expr.hash);
+        // for row in itr {
+        //     let pos = row.0.len() - 24;
+        //     let hasVal = row.0[4] == 1;
+        //     let mut norm_val_in_key = None;
+        //     let mut v = Cow::from("");
+        //     if hasVal {
+        //         norm_val_in_key = Some(&row.0[5..pos]);
+        //         v = String::from_utf8_lossy(norm_val_in_key.unwrap());
+        //     }
+        //
+        //     println!("{:?} {}", &row.0[..4], v);
+        // }
         let (k, v) = itr.next().unwrap();
         assert_eq!(6, v.len()); // Donald
         assert_eq!(35, k.len());
