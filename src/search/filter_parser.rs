@@ -2,7 +2,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::errors::ParseError;
-use crate::search::filter_parser::FilterType::*;
+use crate::search::{ComparisonOperator, Filter};
+use crate::search::FilterType::*;
 use crate::search::filter_scanner::*;
 use crate::search::filter_scanner::TokenType::*;
 
@@ -11,88 +12,6 @@ struct Parser {
     current: usize,
     open_paren_count: i32,
     open_bracket_count: i32
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum FilterType {
-    Simple,
-    Conditional,
-    And,
-    Not,
-    Or
-}
-
-#[derive(Debug)]
-pub enum Filter {
-    StringFilter {
-        identifier: String,
-        operator: ComparisonOperator,
-        value: String
-    },
-    ConditionalFilter {
-        identifier: String,
-        id_path: String,
-        operator: ComparisonOperator,
-        value: String,
-        condition: Box<Filter>
-    },
-    AndFilter {
-        children: Vec<Box<Filter>>
-    },
-    OrFilter {
-        children: Vec<Box<Filter>>
-    },
-    NotFilter {
-        child: Box<Filter>
-    }
-}
-
-impl Filter {
-    fn get_type(&self) -> FilterType {
-        use Filter::*;
-        match self {
-            StringFilter {..} => Simple,
-            ConditionalFilter {..} => Conditional,
-            AndFilter {..} => And,
-            OrFilter {..} => Or,
-            NotFilter {..} => Not
-        }
-    }
-
-    fn to_string(&self) -> String {
-        use Filter::*;
-        match self {
-            StringFilter {identifier, operator, value} => format!("({} {:?} {})", identifier, operator, value),
-            ConditionalFilter {identifier, condition,
-                     id_path, operator,
-                     value} => format!("({}[{}]{} {:?} {})", identifier, condition.to_string(), id_path, operator, value),
-            AndFilter {children} => {
-                let mut s = String::from("(");
-                let size = children.len() - 1;
-                for (i, ch) in children.iter().enumerate() {
-                    s.push_str(ch.to_string().as_str());
-                    if size > 0 && i < size {
-                        s.push_str(" AND ");
-                    }
-                }
-                s.push_str(")");
-                s
-            },
-            OrFilter {children} => {
-                let mut s = String::from("(");
-                let size = children.len() - 1;
-                for (i, ch) in children.iter().enumerate() {
-                    s.push_str(ch.to_string().as_str());
-                    if size > 1 && i < size {
-                        s.push_str(" OR ");
-                    }
-                }
-                s.push_str(")");
-                s
-            },
-            NotFilter {child} => format!("NOT{}", child.to_string())
-        }
-    }
 }
 
 pub fn parse(mut tokens: Vec<Token>) -> Result<Filter, ParseError> {
@@ -261,7 +180,8 @@ mod tests {
     use std::process::Command;
 
     use crate::errors::ParseError;
-    use crate::search::filter_parser::{Filter, parse};
+    use crate::search::Filter;
+    use crate::search::filter_parser::parse;
     use crate::search::filter_scanner::scan_tokens;
 
     fn parse_filter(filter: &String) -> Result<Filter, ParseError> {

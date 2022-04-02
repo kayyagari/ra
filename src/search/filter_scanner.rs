@@ -7,6 +7,7 @@ use std::str::CharIndices;
 use lazy_static::lazy_static;
 
 use crate::errors::ScanError;
+use crate::search::ComparisonOperator;
 
 lazy_static! {
  pub static ref OPERATORS: HashMap<&'static str, ComparisonOperator> = {
@@ -38,29 +39,6 @@ lazy_static! {
 struct Scanner<'a> {
     filter: Peekable<CharIndices<'a>>,
     errors: Vec<String>
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ComparisonOperator {
-    EQ,
-    NE,
-    CO,
-    SW,
-    EW,
-    GT,
-    LT,
-    GE,
-    LE,
-    AP,
-    SA,
-    EB,
-    PR,
-    PO,
-    SS,
-    SB,
-    IN,
-    NI,
-    RE
 }
 
 #[derive(Debug)]
