@@ -155,6 +155,23 @@ impl SchemaDef {
     pub fn get_search_param(&self, id: u32) -> Option<&SearchParamDef> {
         self.search_params.get(&id)
     }
+
+    #[inline]
+    pub fn get_search_param_expr_for_res(&self, code: &String, res_name: &String) -> Option<&SearchParamExpr> {
+        let res_params = self.search_params_by_res_name.get(res_name);
+        if let Some(res_params) = res_params {
+            let param = res_params.get(code);
+            if let Some(param_id) = param {
+                let spd = self.search_params.get(param_id).unwrap();
+                let sp_expr = spd.expressions.get(res_name);
+                if let Some(sp_expr) = sp_expr {
+                    return sp_expr.as_ref();
+                }
+            }
+        }
+
+        None
+    }
 }
 
 pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
@@ -356,7 +373,7 @@ pub fn parse_search_param(param_value: &Document, sd: &SchemaDef) -> Result<Sear
                     let res_name = res_match.as_str();
                     let res_name = &res_name[0..res_name.len()-1];
                     if res_expr_map.contains_key(res_name) {
-                        debug!("parsing expression {} for resource {}", se, res_name);
+                        trace!("parsing expression {} for resource {}", se, res_name);
                         let _ = parse_search_param_expression(se, code, sd)?; // validating the expression
                         if let Some(part_of_res_expr) =  res_expr_map.get_mut(res_name) {
                             // join the parts of expression related to the same resource
@@ -561,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_schema_parsing() {
-        configure_log4rs();
+        //configure_log4rs();
         let f = File::open("test_data/fhir.schema-4.0.json").unwrap();
         let v: Value = serde_json::from_reader(f).unwrap();
         let s = parse_res_def(&v);
