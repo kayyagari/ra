@@ -76,10 +76,12 @@ fn nested_compare<'b>(lhs: Rc<SystemType<'b>>, rhs: Rc<SystemType<'b>>, op: &Ope
             }
         },
         SystemType::Collection(c) => {
-            for item in c.iter() {
-                let item_result = nested_compare(Rc::clone(item), Rc::clone(&rhs), op)?;
-                if item_result.is_truthy() {
-                    return Ok(item_result);
+            if !c.is_empty() {
+                for item in c.iter() {
+                    let item_result = nested_compare(Rc::clone(item), Rc::clone(&rhs), op)?;
+                    if item_result.is_truthy() {
+                        return Ok(item_result);
+                    }
                 }
             }
 
