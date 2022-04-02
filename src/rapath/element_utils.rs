@@ -4,7 +4,7 @@ use rawbson::elem::{Element, ElementType};
 use crate::errors::{EvalError, RaError};
 use crate::rapath::EvalResult;
 use crate::rapath::stypes::{SystemNumber, SystemString, SystemType, Collection};
-use log::error;
+use log::{debug, error};
 use rawbson::RawError;
 
 pub fn to_systype(el: Element) -> Option<SystemType> {
@@ -302,7 +302,8 @@ pub fn get_attribute_to_cast_to<'b>(base: Rc<SystemType<'b>>, at_name: &str, at_
                     }
 
                     if let None = value {
-                        return Err(EvalError::new(format!("neither {} nor {} found in the attributes of the base element", at_name, at_and_type_name)));
+                        debug!("neither {} nor {} found in the attributes of the base element", at_name, at_and_type_name);
+                        return Ok(Rc::new(SystemType::Collection(Collection::new_empty())));
                     }
                     return Ok(Rc::new(value.unwrap()));
                 },
