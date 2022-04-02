@@ -550,11 +550,13 @@ impl ResourceDef {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use crate::res_schema::{parse_res_def, parse_search_param, SchemaDef, split_union_expr};
     use crate::utils::{get_crc_hash, u32_from_le_bytes};
     use std::fs::File;
     use anyhow::Error;
-    use bson::doc;
+    use bson::{doc, Document};
+    use rocket::form::validate::Len;
     use serde_json::Value;
     use crate::configure_log4rs;
     use crate::dtypes::DataType;
@@ -562,6 +564,7 @@ mod tests {
     use crate::rapath::scanner::scan_tokens;
     use crate::search::SearchParamType;
     use crate::utils::test_utils::parse_expression;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     /// a trivial test to check that CRC doesn't produce a collision when
     /// the letters are interchanged in the same string
@@ -733,5 +736,43 @@ mod tests {
         assert_eq!(String::from("AllergyIntolerance.code | AllergyIntolerance.reaction.substance"), spd.expressions.get("AllergyIntolerance").unwrap().as_ref().unwrap().expr);
         assert_eq!(String::from("Condition.code"), spd.expressions.get("Condition").unwrap().as_ref().unwrap().expr);
         assert_eq!(SearchParamType::Token, spd.param_type);
+    }
+
+    #[test]
+    fn test_prase_all_search_params_of_v4() {
+        let f = File::open("test_data/fhir.schema-4.0.json").unwrap();
+        let v: Value = serde_json::from_reader(f).unwrap();
+        let mut sd = parse_res_def(&v).unwrap();
+
+        let sp_file = File::open("test_data/search-parameters-4.0.json").unwrap();
+        let v: Value = serde_json::from_reader(sp_file).unwrap();
+        let params = v.pointer("/entry").unwrap().as_array().unwrap();
+        let mut expected_params_per_res = HashMap::new();
+        for p in params {
+            let d = bson::to_bson(p.get("resource").unwrap()).unwrap();
+            let d = d.as_document().unwrap();
+            let base = d.get_array("base").unwrap();
+            for res_name in base {
+                let res_name = res_name.as_str().unwrap().to_owned();
+                if !expected_params_per_res.contains_key(&res_name) {
+                    expected_params_per_res.insert(res_name.clone(), Vec::new());
+                }
+                expected_params_per_res.get_mut(&res_name).unwrap().push(d.get_str("code").unwrap().to_owned());
+            }
+            let spd = parse_search_param(d, &sd).unwrap();
+            sd.add_search_param(spd);
+        }
+
+        let parsed_params_of_patient = sd.get_search_params_of(&String::from("Patient")).unwrap();
+        let mut parsed_param_names_of_patient: Vec<String> = parsed_params_of_patient.iter().map(|e| e.0.to_string()).collect();
+        parsed_param_names_of_patient.sort();
+
+        let mut expected_params_of_patient = expected_params_per_res.get("Patient").unwrap().to_owned();
+        expected_params_of_patient.sort();
+
+        assert_eq!(expected_params_of_patient, parsed_param_names_of_patient);
+        assert_eq!(expected_params_of_patient.len(), parsed_params_of_patient.len());
+        println!("{}", expected_params_of_patient.len());
+        println!("{:?}", expected_params_of_patient);
     }
 }
