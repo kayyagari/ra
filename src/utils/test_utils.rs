@@ -2,20 +2,62 @@ use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use bson::Document;
 use bson::spec::ElementType;
 use rawbson::DocBuf;
 use rawbson::elem::Element;
+use rocksdb::{DB, Options};
 use serde_json::{Map, Value};
+use crate::barn::Barn;
+use crate::errors::RaError;
 use crate::rapath::scanner::scan_tokens;
 use crate::rapath::expr::Ast;
 use crate::rapath::parser::parse;
+use crate::res_schema::SchemaDef;
+
+pub struct TestContainer {
+    path: PathBuf
+}
+
+impl Drop for TestContainer {
+    fn drop(&mut self) {
+        let opts = Options::default();
+        let r = DB::destroy(&opts, &self.path);
+        if let Err(e) = r {
+            panic!("failed to remove the folder {:?} {}", self.path, e.to_string());
+        }
+    }
+}
+
+impl TestContainer {
+    pub fn new() -> Self {
+        let path = PathBuf::from(format!("/tmp/testcontainer-{}", ksuid::Ksuid::generate().to_base62()));
+        Self{path}
+    }
+
+    pub fn setup_db_with_example_patient(&self) -> Result<(Barn, SchemaDef), RaError> {
+        let barn = Barn::open_with_default_schema(&self.path)?;
+        let sd = barn.build_schema_def()?;
+        let patient_schema = sd.resources.get("Patient").unwrap();
+        let data = read_patient_example();
+        let data = bson::to_document(&data).unwrap();
+        barn.insert(patient_schema, data, &sd)?;
+        Ok((barn, sd))
+    }
+}
 
 pub fn read_patient() -> Value {
-    let f = File::open("test_data/resources/patient-example-a.json").expect("couldn't read the sample patient JSON file");
-    serde_json::from_reader(f).expect("couldn't deserialize the sample patient JSON")
+    let f = File::open("test_data/resources/patient-example-a.json").expect("file patient-example-a.json not found");
+    serde_json::from_reader(f).expect("couldn't deserialize the example patient-a JSON")
+}
+
+// named after the file taken from FHIR examples from hl7.org
+pub fn read_patient_example() -> Value {
+    let f = File::open("test_data/resources/patient-example.json").expect("file patient-example.json not found");
+    serde_json::from_reader(f).expect("couldn't deserialize the example patient JSON")
 }
 
 pub fn to_docbuf(val: &Value) -> DocBuf {
