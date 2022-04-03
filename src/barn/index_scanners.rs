@@ -15,9 +15,9 @@ pub trait IndexScanner {
 }
 
 impl Barn {
-    pub fn new_string_index_scanner<'f, 'd: 'f>(&'d self, search_param_hash: &[u8], input: &'f [u8], op: &'f ComparisonOperator) -> StringIndexScanner<'f, 'd> {
+    pub fn new_string_index_scanner<'f, 'd: 'f>(&'d self, search_param_hash: &'f [u8], input: &'f str, op: &'f ComparisonOperator) -> StringIndexScanner<'f, 'd> {
         let cf = self.db.cf_handle(CF_INDEX).unwrap();
         let itr = self.db.prefix_iterator_cf(cf, search_param_hash);
-        StringIndexScanner::new(input, itr, op)
+        StringIndexScanner::new(input, itr, op, search_param_hash)
     }
 }
