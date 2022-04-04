@@ -15,6 +15,7 @@ use crate::rapath::expr::Ast::*;
 use crate::rapath::expr::Operator::*;
 use crate::rapath::functions::array_index;
 use crate::rapath::functions::cast_as::cast;
+use crate::rapath::functions::union::combine_unique;
 use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, SystemTypeType};
 
 // pub struct ExecContext<'a> {
@@ -109,6 +110,11 @@ use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType, 
                             return Ok(Rc::new(SystemType::Boolean(true)));
                         }
                         Ok(Rc::new(SystemType::Collection(Collection::new_empty())))
+                    },
+                    Union => {
+                        let lr = eval_with_custom_comparison(&lhs, Rc::clone(&base), cmp_func)?;
+                        let rr = eval_with_custom_comparison(&rhs, Rc::clone(&base), cmp_func)?;
+                        combine_unique(lr, rr)
                     },
                     _ => {
                         Err(EvalError::new(format!("unsupported binary operation {:?}", op)))

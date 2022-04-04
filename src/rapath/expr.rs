@@ -76,6 +76,10 @@ impl<'a, 'b> Function<'a> where 'a: 'b {
                     "exists" => {
                         exists(base, args)
                     },
+                    "union" => {
+                        //union(base, args)
+                        Err(EvalError::new(format!("union function is not supported until %rootresource is supported, use | operator instead")))
+                    },
                     _ => {
                         Err(EvalError::new(format!("unknown function name {}", name)))
                     }

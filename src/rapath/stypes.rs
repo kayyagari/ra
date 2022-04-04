@@ -379,6 +379,30 @@ impl<'b> Collection<'b> {
     }
 
     #[inline]
+    pub fn push_unique(&mut self, st: Rc<SystemType<'b>>) -> EvalResult {
+        let col = self.val.as_mut().unwrap();
+        let mut found = false;
+        let mut iter = col.iter();
+        loop {
+            let existing = iter.next();
+            if let None = existing {
+                break;
+            }
+            let existing = existing.unwrap();
+            let r = SystemType::equals(Rc::clone(existing), Rc::clone(&st))?;
+            if r.is_truthy() {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            col.push(st);
+        }
+
+        Ok(Rc::new(SystemType::Boolean(!found)))
+    }
+
+    #[inline]
     pub fn iter(&self) -> core::slice::Iter<Rc<SystemType<'b>>> {
          self.val.as_ref().unwrap().iter()
     }
@@ -409,6 +433,16 @@ impl<'b> Collection<'b> {
         }
 
         None
+    }
+}
+
+impl<'b> From<Vec<i64>> for Collection<'b> {
+    fn from(values: Vec<i64>) -> Self {
+        let mut col = Collection::new();
+        for v in values {
+            col.push(Rc::new(SystemType::Number(SystemNumber::new_integer(v))));
+        }
+        col
     }
 }
 
@@ -1355,5 +1389,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_push_unique() -> Result<(), Error> {
+        let mut col = Collection::new();
+        let added = col.push_unique(Rc::new(SystemType::Number(SystemNumber::new_integer(1))))?;
+        assert!(added.is_truthy());
+
+        let added = col.push_unique(Rc::new(SystemType::Number(SystemNumber::new_integer(1))))?;
+        assert!(!added.is_truthy());
+        assert_eq!(1, col.len());
+
+        Ok(())
     }
 }
