@@ -3,7 +3,7 @@ use std::rc::Rc;
 use rawbson::elem::{Element, ElementType};
 use crate::errors::{EvalError, RaError};
 use crate::rapath::EvalResult;
-use crate::rapath::stypes::{SystemNumber, SystemString, SystemType, Collection};
+use crate::rapath::stypes::{SystemNumber, SystemString, SystemType, Collection, SystemTypeType};
 use log::{debug, error};
 use rawbson::RawError;
 
@@ -149,7 +149,14 @@ pub fn eval_path<'a, 'b>(name: &'a String, base: Rc<SystemType<'b>>) -> EvalResu
                 if let SystemType::Element(e) = item.borrow() {
                     let item_result = eval_path(name, Rc::clone(item))?;
                     if !item_result.is_empty() {
-                        r.push(item_result);
+                        if let SystemType::Collection(inner_col) = item_result.borrow() {
+                            for inner_item in inner_col.iter() {
+                                r.push(Rc::clone(inner_item));
+                            }
+                        }
+                        else {
+                            r.push(item_result);
+                        }
                     }
                 }
                 else {
