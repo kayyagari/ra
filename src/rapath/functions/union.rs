@@ -1,12 +1,12 @@
 use std::borrow::Borrow;
 use std::rc::Rc;
 use crate::errors::EvalError;
-use crate::rapath::engine::eval;
+use crate::rapath::engine::{eval, ExecContext};
 use crate::rapath::EvalResult;
 use crate::rapath::expr::Ast;
 use crate::rapath::stypes::{Collection, SystemType};
 
-pub fn union<'b>(base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResult<'b> {
+pub fn union<'b>(ctx: &'b impl ExecContext<'b>, base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResult<'b> {
     let arg_len = args.len();
     if arg_len == 0 {
         return Err(EvalError::from_str("missing argument for union function"));
@@ -16,7 +16,7 @@ pub fn union<'b>(base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResult
         return Err(EvalError::new(format!("incorrect number of arguments passed to union function. Expected 1, found {}", arg_len)));
     }
 
-    let rhs = eval(&args[0], Rc::clone(&base))?;
+    let rhs = eval(ctx, &args[0], ctx.root_resource())?;
     combine_unique(base, rhs)
 }
 
@@ -49,7 +49,7 @@ mod tests {
     use bson::spec::ElementType;
     use rawbson::DocBuf;
     use rawbson::elem::Element;
-    use crate::rapath::engine::eval;
+    use crate::rapath::engine::{eval, UnresolvableExecContext};
     use crate::rapath::stypes::{Collection, SystemNumber, SystemString, SystemType};
     use crate::utils::test_utils::parse_expression;
 
@@ -65,10 +65,12 @@ mod tests {
         candidates.push(("1 | 1", Rc::new(SystemType::Number(SystemNumber::new_integer(1)))));
         candidates.push(("1 | 2", Rc::new(SystemType::Collection(Collection::from(vec![1, 2])))));
         candidates.push(("inner.r | inner.sub", Rc::new(SystemType::Collection(Collection::from(vec![7, 0, 11])))));
+        candidates.push(("inner.r.union(inner.sub)", Rc::new(SystemType::Collection(Collection::from(vec![7, 0, 11])))));
 
+        let mut ctx = UnresolvableExecContext::new(Rc::clone(&doc_base));
         for (input, expected) in candidates {
             let expr = parse_expression(input);
-            let actual = eval(&expr, Rc::clone(&doc_base)).unwrap();
+            let actual = eval(&mut ctx, &expr, Rc::clone(&doc_base)).unwrap();
             let result = SystemType::equals(expected, actual).unwrap();
             assert!(result.is_truthy());
         }

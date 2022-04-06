@@ -5,12 +5,12 @@ use rawbson::elem::ElementType;
 
 use crate::errors::EvalError;
 use crate::rapath::element_utils::to_systype;
-use crate::rapath::engine::{eval_with_custom_comparison, simple_compare};
+use crate::rapath::engine::{eval_with_custom_comparison, ExecContext, simple_compare};
 use crate::rapath::EvalResult;
 use crate::rapath::expr::{Ast, Function, Operator};
 use crate::rapath::stypes::{Collection, SystemType};
 
-pub fn where_<'b>(base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResult<'b> {
+pub fn where_<'b>(ctx: &'b impl ExecContext<'b>, base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResult<'b> {
     let arg_len = args.len();
     if arg_len == 0 {
         return Err(EvalError::from_str("missing argument for where function"));
@@ -22,7 +22,7 @@ pub fn where_<'b>(base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResul
 
     match base.borrow() {
         SystemType::Element(e) => {
-            let r = eval_with_custom_comparison(&args[0], Rc::clone(&base), Some(nested_compare))?;
+            let r = eval_with_custom_comparison(ctx, &args[0], Rc::clone(&base), Some(nested_compare))?;
             if !r.is_truthy() {
                 return Ok(Rc::new(SystemType::Collection(Collection::new_empty())));
             }
@@ -36,7 +36,7 @@ pub fn where_<'b>(base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResul
             let mut r = Collection::new();
             let e = &args[0];
             for item in c.iter() {
-                let item_result = eval_with_custom_comparison(&e, Rc::clone(item), Some(nested_compare))?;
+                let item_result = eval_with_custom_comparison(ctx, &e, Rc::clone(item), Some(nested_compare))?;
                 if item_result.is_truthy() {
                     r.push(Rc::clone(item));
                 }
@@ -101,7 +101,7 @@ mod tests {
     use rawbson::DocBuf;
     use rawbson::elem::{Element, ElementType};
     use crate::errors::EvalError;
-    use crate::rapath::engine::eval;
+    use crate::rapath::engine::{eval, ExecContext, UnresolvableExecContext};
 
     use crate::rapath::parser::parse;
     use crate::rapath::scanner::scan_tokens;
@@ -116,7 +116,8 @@ mod tests {
         let tokens = scan_tokens("inner.where(k = 1)").unwrap();
         let e = parse(tokens).unwrap();
         let doc_base = SystemType::Element(doc_el);
-        let result = eval(&e, Rc::new(doc_base));
+        let ctx = UnresolvableExecContext::new(Rc::new(doc_base));
+        let result = eval(&ctx, &e, ctx.root_resource());
         assert!(result.is_ok());
         let result = result.unwrap();
         let result = &*result.borrow();
@@ -136,12 +137,13 @@ mod tests {
         let tokens = scan_tokens("name.where(given = 'Duck')").unwrap();
         let e = parse(tokens).unwrap();
         let doc_base = Rc::new(SystemType::Element(p1));
-        let result = eval(&e, Rc::clone(&doc_base))?;
+        let ctx = UnresolvableExecContext::new(Rc::clone(&doc_base));
+        let result = eval(&ctx, &e, Rc::clone(&doc_base))?;
         assert!(result.is_truthy());
 
         let tokens = scan_tokens("name.where(given = 'Peacock')").unwrap();
         let e = parse(tokens).unwrap();
-        let result = eval(&e, Rc::clone(&doc_base))?;
+        let result = eval(&ctx, &e, Rc::clone(&doc_base))?;
         assert!(!result.is_truthy());
 
         Ok(())

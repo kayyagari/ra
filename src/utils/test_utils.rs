@@ -44,7 +44,7 @@ impl TestContainer {
         let patient_schema = sd.resources.get("Patient").unwrap();
         let data = read_patient_example();
         let data = bson::to_document(&data).unwrap();
-        barn.insert(patient_schema, data, &sd)?;
+        barn.insert(patient_schema, data, &sd, false)?;
         Ok((barn, sd))
     }
 }

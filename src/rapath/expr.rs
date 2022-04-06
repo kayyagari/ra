@@ -7,6 +7,7 @@ use crate::errors::{EvalError, ParseError};
 use crate::rapath::scanner::Token::*;
 use rawbson::elem::Element;
 use std::rc::Rc;
+use crate::rapath::engine::ExecContext;
 use crate::rapath::EvalResult;
 use crate::rapath::functions::*;
 use crate::rapath::stypes::SystemType;
@@ -63,22 +64,24 @@ pub enum Function<'a> {
 }
 
 impl<'a, 'b> Function<'a> where 'a: 'b {
-    pub fn eval_func(&'a self, base: Rc<SystemType<'b>>) -> EvalResult<'b> {
+    pub fn eval_func(&'a self, ctx: &'b impl ExecContext<'b>, base: Rc<SystemType<'b>>) -> EvalResult<'b> {
         match self {
             Function::NameAndArgs(name, args) => {
                 match name.as_str() {
                     "where" => {
-                        where_(base, args)
+                        where_(ctx, base, args)
                     },
                     "empty" => {
                         empty(base, args)
                     },
                     "exists" => {
-                        exists(base, args)
+                        exists(ctx, base, args)
                     },
                     "union" => {
-                        //union(base, args)
-                        Err(EvalError::new(format!("union function is not supported until %rootresource is supported, use | operator instead")))
+                        union(ctx, base, args)
+                    },
+                    "resolve_and_check" => {
+                        resolve_and_check(ctx, base, args)
                     },
                     _ => {
                         Err(EvalError::new(format!("unknown function name {}", name)))

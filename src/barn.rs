@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::cell::{Ref, RefCell};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -25,7 +26,8 @@ use thiserror::private::PathAsDisplay;
 use crate::api::bundle::SearchSet;
 
 use crate::errors::{EvalError, RaError};
-use crate::rapath::engine::eval;
+use crate::rapath::engine::{eval, ExecContext, UnresolvableExecContext};
+use crate::rapath::EvalResult;
 use crate::rapath::expr::Ast;
 use crate::rapath::stypes::SystemType;
 use crate::res_schema::{parse_res_def, parse_search_param, ResourceDef, SchemaDef};
@@ -58,6 +60,28 @@ pub struct Barn {
 struct ResourceIterator<'d> {
     inner: DBIterator<'d>,
     prefix: &'d[u8]
+}
+
+pub struct ResolvableContext<'b> {
+    root: Rc<SystemType<'b>>,
+    db: &'b Barn,
+    sd: &'b SchemaDef
+}
+
+impl<'b> ExecContext<'b> for ResolvableContext<'b> {
+    fn root_resource(&self) -> Rc<SystemType<'b>> {
+        Rc::clone(&self.root)
+    }
+
+    fn resolve(&'b self, relative_url: &str) -> Result<Vec<u8>, EvalError> {
+        self.db.resolve(relative_url, self.sd)
+    }
+}
+
+impl<'b> ResolvableContext<'b> {
+    pub fn new(root: Rc<SystemType<'b>>, db: &'b Barn, sd: &'b SchemaDef) -> Self {
+        ResolvableContext{root, db, sd}
+    }
 }
 
 impl Barn {
@@ -188,10 +212,10 @@ impl Barn {
         Ok(schema)
     }
 
-    pub fn insert(&self, res_def: &ResourceDef, mut data: Document, sd: &SchemaDef) -> Result<Document, RaError> {
+    pub fn insert(&self, res_def: &ResourceDef, mut data: Document, sd: &SchemaDef, skip_indexing: bool) -> Result<Document, RaError> {
         let ksid = Ksuid::generate();
         let mut wb = WriteBatch::default();
-        let doc = self.insert_batch(&ksid, res_def, data, &mut wb, sd)?;
+        let (doc, _, _) = self.insert_batch(&ksid, res_def, data, &mut wb, sd, skip_indexing)?;
         let result = self.db.write(wb);
         if let Err(e) = result {
             let msg = format!("unable to insert the record {}", e);
@@ -223,7 +247,8 @@ impl Barn {
             total += 1;
             let e = Element::new(ElementType::EmbeddedDocument, v.as_ref());
             let st = Rc::new(SystemType::Element(e));
-            let pick = eval(&filter, st)?;
+            let mut ctx = UnresolvableExecContext::new(Rc::clone(&st));
+            let pick = eval(&mut ctx, &filter, st)?;
             if pick.is_truthy() && count < 20 {
                 count += 1;
                 let de = BsonDeserializer::from_rawbson(e);
@@ -275,6 +300,46 @@ impl Barn {
             let r = eval_fn(&k, &v);
         }
     }
+
+    pub fn resolve(&self, relative_url: &str, sd: &SchemaDef) -> Result<Vec<u8>, EvalError> {
+        let mut parts = relative_url.splitn(2, "/");
+        let res_name = parts.next();
+        if let None = res_name {
+            return Err(EvalError::new(format!("invalid reference URL {}", relative_url)));
+        }
+        let res_name = res_name.unwrap();
+        let rd = sd.resources.get(res_name);
+        if let None = rd {
+            return Err(EvalError::new(format!("invalid resource type {} in URL {}", res_name, relative_url)));
+        }
+
+        let res_id = parts.next();
+        if let None = res_id {
+            return Err(EvalError::new(format!("invalid reference URL {}", relative_url)));
+        }
+
+        let res_id = res_id.unwrap();
+        let id = Ksuid::from_base62(res_id);
+        if let Err(e) = id {
+            return Err(EvalError::new(format!("invalid resource ID {} in URL {}", res_id, relative_url)));
+        }
+
+        let mut pk = [0; 24];
+        pk[..4].copy_from_slice(&rd.unwrap().hash);
+        pk[4..].copy_from_slice(id.unwrap().as_bytes());
+
+        let res_data = self.db.get(pk);
+        if let Err(e) = res_data {
+            return Err(EvalError::new(format!("couldn't resolve the relative URL {} ({})", relative_url, e.to_string())));
+        }
+
+        let res_data = res_data.unwrap();
+        if let None = res_data {
+            return Err(EvalError::new(format!("resource key exists but has no data associated with it. Reference URL {}", relative_url)));
+        }
+
+        Ok(res_data.unwrap())
+    }
 }
 
 impl Iterator for ResourceIterator<'_> {
@@ -319,7 +384,7 @@ mod tests {
         let patient_schema = sd.resources.get("Patient").unwrap();
         let data = read_patient();
         let data = bson::to_document(&data).unwrap();
-        let mut data = barn.insert(patient_schema, data, &sd)?;
+        let mut data = barn.insert(patient_schema, data, &sd, false)?;
         data.remove("id");
         let inserted_data = DocBuf::from_document(&data);
         let inserted_data = Element::new(ElementType::EmbeddedDocument, inserted_data.as_bytes());

@@ -1,13 +1,14 @@
 use std::borrow::Borrow;
 use std::rc::Rc;
+use crate::rapath::engine::ExecContext;
 use crate::rapath::EvalResult;
 use crate::rapath::expr::Ast;
 use crate::rapath::functions::where_;
 use crate::rapath::stypes::SystemType;
 
-pub fn exists<'b>(mut base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResult<'b> {
+pub fn exists<'b>(ctx: &'b impl ExecContext<'b>, mut base: Rc<SystemType<'b>>, args: &'b Vec<Ast<'b>>) -> EvalResult<'b> {
     if !args.is_empty() {
-        base = where_(base, args)?
+        base = where_(ctx, base, args)?
     }
 
     match base.borrow() {
@@ -23,7 +24,7 @@ mod tests {
     use bson::spec::ElementType;
     use rawbson::DocBuf;
     use rawbson::elem::Element;
-    use crate::rapath::engine::eval;
+    use crate::rapath::engine::{eval, UnresolvableExecContext};
     use crate::utils::test_utils::parse_expression;
     use super::*;
 
@@ -33,6 +34,7 @@ mod tests {
         let raw = DocBuf::from_document(&bdoc);
         let doc_el = Element::new(ElementType::EmbeddedDocument, raw.as_bytes());
         let doc_base = Rc::new(SystemType::Element(doc_el));
+        let ctx = UnresolvableExecContext::new(doc_base);
 
         let mut exprs = Vec::new();
         exprs.push(("exists()", true));
@@ -41,7 +43,7 @@ mod tests {
         exprs.push(("exists(inner.k < 1)", false));
         for (input, expected) in exprs {
             let e = parse_expression(input);
-            let result = eval(&e, Rc::clone(&doc_base)).unwrap();
+            let result = eval(&ctx, &e, ctx.root_resource()).unwrap();
             assert_eq!(expected, result.as_bool().unwrap());
         }
     }

@@ -173,6 +173,23 @@ impl<'a> Parser<'a> {
                     rhs = Ast::Literal {val: Rc::new(SystemType::String(SystemString::new(name)))};
                 }
 
+                // the reason for existence of the below if block is to
+                // work around the ownership issues (Barn::resolve returns a Vec<u8> but
+                // it is impossible to create a SystemType::Element from a reference to it
+                // instead, the idea is to convert an expression like
+                // CarePlan.subject.where(resolve() is Patient)
+                // into
+                // CarePlan.subject.where(resolve_and_check(Patient))
+                if let Ast::Function {func} = left.borrow() {
+                    if let Function::NameAndArgs(name, ..) = func {
+                        if name == "resolve" {
+                            let args = vec![rhs];
+                            let resolve_and_check = Function::NameAndArgs(String::from("resolve_and_check"), args);
+                            return Ok(Ast::Function {func: resolve_and_check});
+                        }
+                    }
+                }
+
                 Ok(Ast::Binary {
                     lhs: left,
                     rhs: Box::new(rhs),

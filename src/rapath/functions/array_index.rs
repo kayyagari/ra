@@ -24,7 +24,7 @@ mod tests {
     use bson::spec::ElementType;
     use rawbson::DocBuf;
     use rawbson::elem::Element;
-    use crate::rapath::engine::eval;
+    use crate::rapath::engine::{eval, ExecContext, UnresolvableExecContext};
     use crate::rapath::stypes::SystemNumber;
     use crate::utils::test_utils::parse_expression;
     use super::*;
@@ -35,6 +35,7 @@ mod tests {
         let raw = DocBuf::from_document(&bdoc);
         let doc_el = Element::new(ElementType::EmbeddedDocument, raw.as_bytes());
         let doc_base = Rc::new(SystemType::Element(doc_el));
+        let ctx = UnresolvableExecContext::new(doc_base);
 
         let mut exprs = Vec::new();
         exprs.push(("inner[0].k", SystemType::Number(SystemNumber::new_integer(2))));
@@ -44,7 +45,7 @@ mod tests {
         exprs.push(("inner[1].sub[1]", SystemType::Number(SystemNumber::new_integer(11))));
         for (input, expected) in exprs {
             let e = parse_expression(input);
-            let actual = eval(&e, Rc::clone(&doc_base)).unwrap();
+            let actual = eval(&ctx, &e, ctx.root_resource()).unwrap();
             let expected = Rc::new(expected);
             let result = SystemType::equals(Rc::clone(&expected), actual).unwrap();
             assert_eq!(expected.is_truthy(), result.is_truthy());

@@ -16,7 +16,7 @@ pub fn empty<'b>(base: Rc<SystemType<'b>>, _: &'b Vec<Ast<'b>>) -> EvalResult<'b
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
-    use crate::rapath::engine::eval;
+    use crate::rapath::engine::{eval, ExecContext, UnresolvableExecContext};
     use crate::rapath::stypes::{Collection, SystemString, SystemType};
     use crate::utils::test_utils::parse_expression;
 
@@ -32,7 +32,8 @@ mod tests {
 
         let expr = parse_expression("empty()");
         for (base, expected) in candidates {
-            let result = eval(&expr, Rc::new(base)).unwrap();
+            let ctx = UnresolvableExecContext::new(Rc::new(base));
+            let result = eval(&ctx, &expr, ctx.root_resource()).unwrap();
             let result = result.as_bool().unwrap();
             assert_eq!(expected, result);
         }

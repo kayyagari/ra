@@ -7,7 +7,7 @@ use ksuid::Ksuid;
 use log::{debug, trace};
 use rawbson::elem::Element;
 use rocksdb::WriteBatch;
-use crate::barn::{Barn, CF_INDEX};
+use crate::barn::{Barn, CF_INDEX, ResolvableContext};
 use crate::errors::RaError;
 use crate::rapath::element_utils;
 use crate::rapath::engine::eval;
@@ -20,7 +20,7 @@ use crate::search::SearchParamType;
 use crate::utils::bson_utils;
 
 impl Barn {
-    pub fn insert_batch(&self, ksid: &Ksuid, res_def: &ResourceDef, mut data: Document, wb: &mut WriteBatch, sd: &SchemaDef) -> Result<Document, RaError> {
+    pub fn insert_batch(&self, ksid: &Ksuid, res_def: &ResourceDef, mut data: Document, wb: &mut WriteBatch, sd: &SchemaDef, skip_indexing: bool) -> Result<(Document, Vec<u8>, [u8; 24]), RaError> {
         let res_id = ksid.to_base62();
         debug!("inserting a {} with ID {}", &res_def.name, &res_id);
         data.insert("id", Bson::from(res_id));
@@ -58,7 +58,9 @@ impl Barn {
 
         let pk = res_def.new_id(ksid.as_bytes());
         wb.put(&pk, vec_bytes.as_slice());
-        self.index_searchparams(wb, &pk, &vec_bytes, res_def, sd)?;
+        if !skip_indexing {
+            self.index_searchparams(wb, &pk, &vec_bytes, res_def, sd)?;
+        }
 
         // handle references
         for (ref_prop, _) in &res_def.ref_props {
@@ -79,7 +81,7 @@ impl Barn {
                 }
             }
         }
-        Ok(data)
+        Ok((data, vec_bytes, pk))
     }
 
     fn insert_ref<S: AsRef<str>>(&self, ref_at_name: S, from_id: &[u8], item: &Bson, from: &ResourceDef, wb: &mut WriteBatch, sd: &SchemaDef) -> Result<(), RaError> {
@@ -117,7 +119,7 @@ impl Barn {
         Ok(())
     }
 
-    fn index_searchparams(&self, wb: &mut WriteBatch, pk: &[u8; 24], res_data: &Vec<u8>, rd: &ResourceDef, sd: &SchemaDef) -> Result<(), RaError> {
+    pub fn index_searchparams(&self, wb: &mut WriteBatch, pk: &[u8; 24], res_data: &Vec<u8>, rd: &ResourceDef, sd: &SchemaDef) -> Result<(), RaError> {
         let base = Element::new(ElementType::EmbeddedDocument, res_data.as_ref());
         let base = Rc::new(SystemType::Element(base));
         let search_params = sd.get_search_params_of(&rd.name);
@@ -136,7 +138,8 @@ impl Barn {
             //debug!("evaluating expression {} of search param {}", expr.expr, code);
             let tokens = scan_tokens(expr.expr.as_str()).unwrap(); // the expression was already validated at the time of building schema
             let ast = parse_with_schema(tokens, wrapped_sd).unwrap();
-            let result = eval(&ast, Rc::clone(&base))?;
+            let ctx = ResolvableContext::new(Rc::clone(&base), self, sd);
+            let result = eval(&ctx, &ast, Rc::clone(&base))?;
 
             let mut rows: Vec<Option<(Vec<u8>, Vec<u8>)>> = Vec::new();
             format_index_rows(result, spd, expr, pk, &mut rows);
@@ -297,7 +300,7 @@ mod tests {
         let data = read_patient();
         let data = bson::to_document(&data).unwrap();
 
-        let mut data = barn.insert(patient_schema, data, &sd)?;
+        let mut data = barn.insert(patient_schema, data, &sd, false)?;
         let inserted_data = DocBuf::from_document(&data);
         let inserted_data = Element::new(ElementType::EmbeddedDocument, inserted_data.as_bytes());
 

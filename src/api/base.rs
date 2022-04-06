@@ -136,6 +136,7 @@ impl ApiBase {
         self.schema.validate(&val)?;
         let req_bundle = RequestBundle::from(val)?;
         debug!("processing transaction bundle");
+        let mut to_be_indexed = Vec::new();
         let mut wb = WriteBatch::default();
         for e in req_bundle.entries {
             match e.req_method {
@@ -145,7 +146,8 @@ impl ApiBase {
                 Method::Post => {
                     let data = e.resource;
                     let rd = self.get_res_def(&data)?;
-                    let r = self.db.insert_batch(&e.ra_id, rd, data, &mut wb, &self.schema)?;
+                    let (_, doc_bytes, db_id) = self.db.insert_batch(&e.ra_id, rd, data, &mut wb, &self.schema, true)?;
+                    to_be_indexed.push((db_id, doc_bytes, rd));
                 },
                 Method::Put => {
 
@@ -163,6 +165,14 @@ impl ApiBase {
         }
 
         self.db.save_batch(wb)?;
+        if !to_be_indexed.is_empty() {
+            debug!("indexing after saving data from batch");
+            let mut wb = WriteBatch::default();
+            for (db_id, doc, rd) in to_be_indexed {
+                self.db.index_searchparams(&mut wb, &db_id, &doc, rd, &self.schema)?;
+            }
+            self.db.save_batch(wb)?;
+        }
         Ok(RaResponse::Success)
     }
 
@@ -175,7 +185,7 @@ impl ApiBase {
             return Err(RaError::bad_req(format!("received {}'s data on {}'s endpoint", &rd.name, res_name)));
         }
 
-        let doc = self.db.insert(rd, doc, &self.schema)?;
+        let doc = self.db.insert(rd, doc, &self.schema, false)?;
         Ok(RaResponse::Created(doc))
     }
 
@@ -236,6 +246,7 @@ mod tests {
 
     use anyhow::Error;
     use serde_json::json;
+    use crate::configure_log4rs;
 
     use crate::utils::test_utils::parse_expression;
 
@@ -243,7 +254,9 @@ mod tests {
 
     #[test]
     fn test_bundle_transaction() -> Result<(), Error> {
-        let path = PathBuf::from("/tmp/testdb");
+        configure_log4rs();
+        let path = PathBuf::from("/tmp/bundle_transaction_testdb");
+        std::fs::remove_dir_all(&path);
         let barn = Barn::open_with_default_schema(&path)?;
 
         let gateway = ApiBase::new(barn)?;
