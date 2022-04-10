@@ -1,6 +1,6 @@
 use crate::res_schema::PropertyDef;
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, format, Formatter};
 use crate::dtypes::DataType;
 use chrono::{DateTime, Utc};
 use crate::errors::{ParseError, RaError};
@@ -9,6 +9,8 @@ use crate::search::filter_scanner::Token;
 mod filter_scanner;
 mod filter_parser;
 pub mod executor;
+pub mod filter_converter;
+pub mod index_scanners;
 
 pub struct SearchExpr {
     name: String,
@@ -47,15 +49,9 @@ pub struct Uri {
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum SearchParamType {
-    Number,
-    Date,
-    String,
-    Token,
-    Reference,
-    Composite,
-    Quantity,
-    Uri,
-    Special
+    Number, Date, String, Token,
+    Reference, Composite, Quantity,
+    Uri, Special
 }
 
 impl SearchParamType {
@@ -76,21 +72,73 @@ impl SearchParamType {
     }
 }
 
-#[allow(non_camel_case_types)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Modifier {
-    Text,
-    Not,
-    Above,
-    Below,
-    In,
-    NotIn,
-    OfType,
-    Missing,
-    Exact,
-    Contains,
-    Identifier,
-    ResType(String), // e.g :patient used to define the type of reference (subject:patient=<id>)
+    Text, Not, Above, Below,
+    In, NotIn, OfType, Missing,
+    Exact, Contains, Identifier,
+    Custom(String), // e.g :patient used to define the type of reference (subject:patient=<id>)
     None
+}
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum SearchParamPrefix {
+    Eq, Ne, Gt, Lt,
+    Ge, Le, Sa, Eb, Ap,
+    Unknown
+}
+
+impl From<&str> for Modifier {
+    fn from(name: &str) -> Self {
+        match name {
+            "text" => Modifier::Text,
+            "not" => Modifier::Not,
+            "above" => Modifier::Above,
+            "below" => Modifier::Below,
+            "in" => Modifier::In,
+            "notin" => Modifier::NotIn,
+            "oftype" => Modifier::OfType,
+            "missing" => Modifier::Missing,
+            "exact" => Modifier::Exact,
+            "contains" => Modifier::Contains,
+            "identifier" => Modifier::Identifier,
+            _ => Modifier::None
+        }
+    }
+}
+
+impl From<&str> for SearchParamPrefix {
+    fn from(prefix: &str) -> SearchParamPrefix {
+        match prefix {
+            "eq" => SearchParamPrefix::Eq,
+            "ne" => SearchParamPrefix::Ne,
+            "gt" => SearchParamPrefix::Gt,
+            "lt" => SearchParamPrefix::Lt,
+            "ge" => SearchParamPrefix::Ge,
+            "le" => SearchParamPrefix::Le,
+            "sa" => SearchParamPrefix::Sa,
+            "eb" => SearchParamPrefix::Eb,
+            "ap" => SearchParamPrefix::Ap,
+            _ => SearchParamPrefix::Unknown
+        }
+    }
+}
+
+impl From<SearchParamPrefix> for ComparisonOperator {
+    fn from(prefix: SearchParamPrefix) -> ComparisonOperator {
+        match prefix {
+            SearchParamPrefix::Eq => ComparisonOperator::EQ,
+            SearchParamPrefix::Ne => ComparisonOperator::NE,
+            SearchParamPrefix::Gt => ComparisonOperator::GT,
+            SearchParamPrefix::Lt => ComparisonOperator::LT,
+            SearchParamPrefix::Ge => ComparisonOperator::GE,
+            SearchParamPrefix::Le => ComparisonOperator::LE,
+            SearchParamPrefix::Sa => ComparisonOperator::SA,
+            SearchParamPrefix::Eb => ComparisonOperator::EB,
+            SearchParamPrefix::Ap => ComparisonOperator::AP,
+            SearchParamPrefix::Unknown => ComparisonOperator::EQ
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -151,6 +199,7 @@ pub enum ComparisonOperator {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FilterType {
     Simple,
+    QueryParam,
     Conditional,
     And,
     Not,
@@ -158,36 +207,43 @@ pub enum FilterType {
 }
 
 #[derive(Debug)]
-pub enum Filter {
-    StringFilter {
+pub enum Filter<'r> {
+    SimpleFilter {
         identifier: String,
         operator: ComparisonOperator,
         value: String
+    },
+    QueryParamFilter {
+        identifier: &'r str,
+        modifier: Modifier,
+        value: &'r str,
+        operator: ComparisonOperator
     },
     ConditionalFilter {
         identifier: String,
         id_path: String,
         operator: ComparisonOperator,
         value: String,
-        condition: Box<Filter>
+        condition: Box<Filter<'r>>
     },
     AndFilter {
-        children: Vec<Box<Filter>>
+        children: Vec<Box<Filter<'r>>>
     },
     OrFilter {
-        children: Vec<Box<Filter>>
+        children: Vec<Box<Filter<'r>>>
     },
     NotFilter {
-        child: Box<Filter>
+        child: Box<Filter<'r>>
     }
 }
 
-impl Filter {
+impl Filter<'_> {
     fn get_type(&self) -> FilterType {
         use Filter::*;
         use FilterType::*;
         match self {
-            StringFilter {..} => Simple,
+            SimpleFilter {..} => Simple,
+            QueryParamFilter {..} => QueryParam,
             ConditionalFilter {..} => Conditional,
             AndFilter {..} => And,
             OrFilter {..} => Or,
@@ -198,7 +254,8 @@ impl Filter {
     fn to_string(&self) -> String {
         use Filter::*;
         match self {
-            StringFilter {identifier, operator, value} => format!("({} {:?} {})", identifier, operator, value),
+            SimpleFilter {identifier, operator, value} => format!("({} {:?} {})", identifier, operator, value),
+            QueryParamFilter{identifier, modifier, operator, value} => format!(""),
             ConditionalFilter {identifier, condition,
                      id_path, operator,
                      value} => format!("({}[{}]{} {:?} {})", identifier, condition.to_string(), id_path, operator, value),

@@ -14,13 +14,13 @@ struct Parser {
     open_bracket_count: i32
 }
 
-pub fn parse(mut tokens: Vec<Token>) -> Result<Filter, ParseError> {
+pub fn parse<'r>(mut tokens: Vec<Token>) -> Result<Filter<'r>, ParseError> {
     let mut p = Parser{ tokens, current: 0, open_paren_count: 0, open_bracket_count: 0};
     p.parse()
 }
 
 impl Parser {
-    fn parse(&mut self) -> Result<Filter, ParseError> {
+    fn parse<'r>(&mut self) -> Result<Filter<'r>, ParseError> {
         let mut e: Option<Filter> = None;
         while !self.is_at_end() {
             let t = self.peek();
@@ -107,7 +107,7 @@ impl Parser {
         Ok(e.unwrap())
     }
 
-    fn parse_expr(&mut self) -> Result<Filter, ParseError> {
+    fn parse_expr<'r>(&mut self) -> Result<Filter<'r>, ParseError> {
         let id = self.consume(IDENTIFIER)?;
         let id = id.val.clone();
 
@@ -134,7 +134,7 @@ impl Parser {
             return Ok(ce);
         }
 
-        let se = Filter::StringFilter {identifier: id, operator: *op, value: va.val.clone()};
+        let se = Filter::SimpleFilter {identifier: id, operator: *op, value: va.val.clone()};
         Ok(se)
     }
 

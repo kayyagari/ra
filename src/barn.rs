@@ -36,7 +36,6 @@ use crate::utils;
 use crate::utils::{bson_utils, get_crc_hash, prefix_id};
 
 mod insert;
-pub mod index_scanners;
 
 const RA_METADATA_KEY_PREFIX: &str = "_____RA_METADATA_KEY_PREFIX_____";
 pub(crate) const CF_INDEX: &str = "index";
@@ -60,6 +59,17 @@ pub struct Barn {
 struct ResourceIterator<'d> {
     inner: DBIterator<'d>,
     prefix: &'d[u8]
+}
+
+pub struct IndexIterator<'d> {
+    inner: DBIterator<'d>,
+    prefix: &'d[u8]
+}
+
+pub struct IndexRow<'a> {
+    key: &'a [u8],
+    norm_val: Option<&'a [u8]>,
+    value: &'a [u8]
 }
 
 pub struct ResolvableContext<'b> {
@@ -293,12 +303,10 @@ impl Barn {
         Ok(data)
     }
 
-    pub fn scan_index(&self, eval_fn: fn(key: &[u8], value: &[u8]) -> Result<Option<bool>, EvalError>) {
-        let hash: [u8; 4] = [1,2,3,4];
-        let iter: rocksdb::DBIterator = self.db.prefix_iterator(&hash);
-        for (k, v) in iter {
-            let r = eval_fn(&k, &v);
-        }
+    pub fn new_index_iter<'d>(&'d self, search_param_hash: &'d [u8]) -> DBIterator<'d> {
+        let cf = self.db.cf_handle(CF_INDEX).unwrap();
+        self.db.prefix_iterator_cf(cf, search_param_hash)
+        //IndexIterator{prefix:search_param_hash, inner}
     }
 
     pub fn resolve(&self, relative_url: &str, sd: &SchemaDef) -> Result<Vec<u8>, EvalError> {
@@ -366,6 +374,34 @@ impl Iterator for ResourceIterator<'_> {
     }
 }
 
+/* will only be possible once GATs are available in the next version of Rust
+impl Iterator for IndexIterator<'_> {
+    type Item<'a> = IndexRow<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let row = self.inner.next();
+        if let None = row {
+            return None;
+        }
+        let row = row.unwrap();
+        let row_prefix = &row.0[..4];
+        if row_prefix != self.prefix {
+            return None;
+        }
+
+        let pos = row.0.len() - 24;
+        let hasVal = row.0[4] == 1;
+        let mut norm_val_in_key = None;
+        if hasVal {
+            norm_val_in_key = Some(&row.0[5..pos]);
+        }
+
+        let res_key = &row.0[pos..];
+        let ir = IndexRow{key: res_key, norm_val: norm_val_in_key, value: row.1.as_ref()};
+        Some(ir)
+    }
+}
+*/
 #[cfg(test)]
 mod tests {
     use std::fs::File;

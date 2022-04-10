@@ -18,6 +18,9 @@ use crate::rapath::parser::parse;
 use crate::rapath::scanner::scan_tokens;
 use crate::res_schema::{parse_res_def, parse_search_param, SchemaDef};
 use crate::ResourceDef;
+use crate::search::{ComparisonOperator, Filter, Modifier};
+use crate::search::executor::execute_search_query;
+use crate::search::filter_converter::param_to_filter;
 
 pub struct ApiBase {
     db: Barn,
@@ -67,7 +70,16 @@ enum NarrativeStatus {
 
 #[derive(Debug)]
 pub struct SearchQuery<'r> {
-    pub params: Vec<(&'r str, &'r str)>
+    pub params: Vec<(&'r str, &'r str)>,
+    pub sort: Option<&'r str>,
+    pub count: u32,
+    pub include: Option<&'r str>,
+    pub revinclude: Option<&'r str>,
+    pub total: Total,
+    pub contained: Contained,
+    pub contained_type: ContainedType,
+    pub summary: bool,
+    pub elements: bool
 }
 
 
@@ -76,6 +88,55 @@ pub enum ReturnContent {
     Minimal,
     Representation,
     OperationOutcome
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Total {
+    None,
+    Estimate,
+    Accurate
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Contained {
+    DoNotReturn,
+    Return,
+    Both
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ContainedType {
+    Container,
+    Contained
+}
+
+impl From<&str> for Total {
+    fn from(s: &str) -> Self {
+        match s {
+            "estimate" => Total::Estimate,
+            "accurate" => Total::Accurate,
+            _ => Total::None
+        }
+    }
+}
+
+impl From<&str> for Contained {
+    fn from(s: &str) -> Self {
+        match s {
+            "true" => Contained::Return,
+            "both" => Contained::Both,
+            _ => Contained::DoNotReturn
+        }
+    }
+}
+
+impl From<&str> for ContainedType {
+    fn from(s: &str) -> Self {
+        match s {
+            "contained" => ContainedType::Contained,
+            _ => ContainedType::Container
+        }
+    }
 }
 
 impl ReturnContent {
@@ -211,12 +272,22 @@ impl ApiBase {
     }
 
     pub fn search_query(&self, res_name: &str, query: &SearchQuery, hints: &ResponseHints) -> Result<RaResponse, RaError> {
-        let (key, val) = query.params[0];
-        debug!("parsing filter {}", val);
-        let tokens = scan_tokens(val)?;
-        let ast = parse(tokens)?;
+        debug!("searching on {}", res_name);
         let rd = self.get_res_def_by_name(res_name)?;
-        self.search(rd, &ast)
+        let mut filter;
+        if query.params.len() == 1 {
+            let (key, val) = query.params[0];
+            filter = param_to_filter(key, val);
+        }
+        else {
+            let mut children = Vec::new();
+            for (key, val) in &query.params {
+                let sf = param_to_filter(key, val);
+                children.push(Box::new(sf));
+            }
+            filter = Filter::AndFilter {children};
+        }
+        execute_search_query(&filter, rd, &self.db, &self.schema)
     }
 
     pub fn search(&self, rd: &ResourceDef, filter: &Ast) -> Result<RaResponse, RaError> {

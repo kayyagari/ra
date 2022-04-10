@@ -295,7 +295,8 @@ mod tests {
         std::fs::remove_dir_all(&path);
         let barn = Barn::open_with_default_schema(&path)?;
         let sd = barn.build_schema_def()?;
-        let expr = sd.get_search_param_expr_for_res(&String::from("family"), &String::from("Patient")).unwrap();
+        let (spd, expr) = sd.get_search_param_expr_for_res(&String::from("family"), &String::from("Patient")).unwrap();
+        let expr = expr.unwrap();
         let patient_schema = sd.resources.get("Patient").unwrap();
         let data = read_patient();
         let data = bson::to_document(&data).unwrap();

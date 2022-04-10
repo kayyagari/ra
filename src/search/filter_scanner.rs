@@ -241,6 +241,9 @@ impl Scanner<'_> {
                             'n' => s.push('\n'),
                             't' => s.push('\t'),
                             'f' => s.push_str("\\f"),
+                            ',' => s.push_str("\\,"),
+                            '$' => s.push_str("\\$"),
+                            '|' => s.push_str("\\|"),
                             _ => {
                                 s.push(c);
                             }
@@ -271,6 +274,7 @@ mod tests {
         candidates.push(("name eq \"abcd\"", 3, 0));
         candidates.push(("not(name eq \"ab\\\"cd\")", 6, 0));
         candidates.push(("name eq \"abcd", 0, 1));
+        candidates.push(("name eq \"ab,c\\,d\"", 3, 0));
         candidates.push(("weight ge 0.7 and height le 20", 7, 0));
         candidates.push(("not(person[id eq 1].weight ge 0.7 and height le 20)", 16, 0));
         candidates.push(("not(person[id eq 1].weight ge 0.7 and (address.ishome eq false))", 18, 0));
@@ -295,6 +299,17 @@ mod tests {
                 let tokens = r.unwrap();
                 assert_eq!(token_count, tokens.len() - 1); // excluding the EOF token
             }
+        }
+
+        // test escaping of , $ and | chars
+        let mut candidates = vec!();
+        candidates.push(("name eq \"ab,c\\,d\"", "ab,c\\,d"));
+        candidates.push(("name eq \"ab$c\\$d\"", "ab$c\\$d"));
+        candidates.push(("name eq \"ab|c\\|d\"", "ab|c\\|d"));
+        candidates.push(("name:exact eq \"ab|c\\|d\"", "ab|c\\|d"));
+        for (input, expected_val) in candidates {
+            let r = scan_tokens(input).unwrap();
+            assert_eq!(expected_val, r[2].val);
         }
     }
 

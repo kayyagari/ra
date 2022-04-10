@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use log::warn;
 use rocksdb::DBIterator;
-use crate::barn::index_scanners::{IndexScanner, SelectedResourceKey};
+use crate::search::index_scanners::{IndexScanner, SelectedResourceKey};
 use crate::search::ComparisonOperator;
 use crate::search::ComparisonOperator::*;
 

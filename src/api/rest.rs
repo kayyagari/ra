@@ -14,7 +14,7 @@ use rocket::response::Responder;
 use rocket::serde::Deserialize;
 use serde_json::Value;
 
-use crate::api::base::{ApiBase, ConditionalHeaders, OperationOutcome, RaResponse, ResponseHints, ReturnContent, SearchQuery};
+use crate::api::base::{ApiBase, ConditionalHeaders, Contained, ContainedType, OperationOutcome, RaResponse, ResponseHints, ReturnContent, SearchQuery, Total};
 use crate::utils::bson_utils;
 use crate::errors::{IssueType, RaError};
 
@@ -27,18 +27,68 @@ impl<'r> FromRequest<'r> for SearchQuery<'r> {
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let mut params: Vec<(&'r str, &'r str)> = Vec::new();
+        let mut sort: Option<&'r str> = None;
+        let mut count: u32 = 20;
+        let mut include: Option<&'r str> = None;
+        let mut revinclude: Option<&'r str> = None;
+        let mut total = Total::None;
+        let mut contained = Contained::DoNotReturn;
+        let mut contained_type = ContainedType::Container;
+        let mut elements = false;
+        let mut summary = false;
+
         for item in request.query_fields() {
             match item.name.as_name().as_str() {
-                "return" | "_pretty" | "_summary" | "_elements" | "_format" => {
+                "return" | "_pretty" | "_format" => {
                     continue;
+                },
+                "_summary" => {
+                    let tmp = item.value.parse::<bool>();
+                    if let Ok(b) = tmp {
+                        summary = b;
+                    }
+                },
+                "_elements" => {
+                    let tmp = item.value.parse::<bool>();
+                    if let Ok(b) = tmp {
+                        elements = b;
+                    }
+                },
+                "_sort" => {
+                    sort = Some(item.value);
+                },
+                "_count" => {
+                    let tmp = item.value.parse::<u32>();
+                    if let Err(e) = tmp {
+                        // TODO what is the best way to handle errors here? just throw 400?
+                        debug!("invalid value {} given for _count parameter ({})", item.value, e.to_string());
+                    }
+                    else {
+                        count = tmp.unwrap();
+                    }
+                },
+                "_include" => {
+                    include = Some(item.value);
+                },
+                "_revinclude" => {
+                    revinclude = Some(item.value);
+                },
+                "_total" => {
+                    total = Total::from(item.value);
+                },
+                "_contained" => {
+                    contained = Contained::from(item.value);
+                },
+                "_containedType" => {
+                    contained_type = ContainedType::from(item.value);
                 },
                 name => {
                     params.push((name, item.value));
                 }
             }
         }
-
-        Outcome::Success(SearchQuery {params})
+        let sq = SearchQuery {params, sort, count, include, revinclude, summary, total, elements, contained, contained_type};
+        Outcome::Success(sq)
     }
 }
 

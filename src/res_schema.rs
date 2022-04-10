@@ -157,7 +157,7 @@ impl SchemaDef {
     }
 
     #[inline]
-    pub fn get_search_param_expr_for_res(&self, code: &String, res_name: &String) -> Option<&SearchParamExpr> {
+    pub fn get_search_param_expr_for_res(&self, code: &str, res_name: &str) -> Option<(&SearchParamDef, Option<&SearchParamExpr>)> {
         let res_params = self.search_params_by_res_name.get(res_name);
         if let Some(res_params) = res_params {
             let param = res_params.get(code);
@@ -165,7 +165,8 @@ impl SchemaDef {
                 let spd = self.search_params.get(param_id).unwrap();
                 let sp_expr = spd.expressions.get(res_name);
                 if let Some(sp_expr) = sp_expr {
-                    return sp_expr.as_ref();
+                    let expr = sp_expr.as_ref();
+                    return Some((spd, expr));
                 }
             }
         }
