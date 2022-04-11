@@ -34,7 +34,7 @@ pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd:
             match spd.param_type {
                 SearchParamType::String => {
                     let itr = db.new_index_iter(&sp_expr.hash);
-                    idx_scanner = StringIndexScanner::new(value, itr, operator, &sp_expr.hash)
+                    idx_scanner = StringIndexScanner::new(value, itr, operator, &sp_expr.hash, modifier)
                 },
                 _ => {
                     return Err(EvalError::new(format!("unsupported search parameter type {:?}", spd.param_type)));

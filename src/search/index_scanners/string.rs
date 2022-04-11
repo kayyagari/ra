@@ -1,32 +1,46 @@
 use std::collections::HashMap;
 use log::warn;
+use rocket::form::validate::Contains;
 use rocksdb::DBIterator;
 use crate::search::index_scanners::{IndexScanner, SelectedResourceKey};
-use crate::search::ComparisonOperator;
+use crate::search::{ComparisonOperator, Modifier};
 use crate::search::ComparisonOperator::*;
 
 pub struct StringIndexScanner<'f, 'd: 'f> {
-    input: Vec<u8>,
+    value: Vec<u8>,
     itr: DBIterator<'d>,
     index_prefix: &'f [u8],
     op: &'f ComparisonOperator,
-    eof: bool
+    eof: bool,
+    modifier: Modifier,
+    values: Vec<Vec<u8>>
 }
 
 impl<'f, 'd: 'f> StringIndexScanner<'f, 'd> {
-    pub fn new(input: &'f str, itr: DBIterator<'d>, op: &'f ComparisonOperator, index_prefix: &'f [u8]) -> Self {
-        // this conversion to Vec<u8> is necessary to keep the parser schema free
+    pub fn new(input: &'f str, itr: DBIterator<'d>, mut op: &'f ComparisonOperator, index_prefix: &'f [u8], modifier: Modifier) -> Self {
+        // conversion to Vec<u8> is necessary to keep the parser schema free
         // and support the ":exact" modifier
         // note: a UTF-8 string will NOT always produce byte-arrays of same lengths for upper and lower cases
-        let norm_val;
-        if op == &EQ {
-            norm_val = input.as_bytes().to_vec();
-        }
-        else {
-            norm_val = input.to_lowercase().as_bytes().to_vec();
+        let mut values = Vec::new();
+        if input.contains(',') {
+            let tmp = split_delimited_values(input, ',');
+            for s in tmp {
+                values.push(normalize(&s, &modifier));
+            }
         }
 
-        StringIndexScanner {input: norm_val, itr, op, index_prefix, eof: false}
+        let mut norm_val= Vec::new();
+        if values.len() == 1 {
+            norm_val = values.swap_remove(0);
+        }
+        else if values.is_empty() {
+            norm_val = normalize(input, &modifier);
+        }
+        else {
+            op = &ComparisonOperator::IN;
+        }
+
+        StringIndexScanner { value: norm_val, itr, op, index_prefix, eof: false, modifier, values}
     }
 }
 
@@ -112,7 +126,7 @@ impl<'f, 'd: 'f> IndexScanner for StringIndexScanner<'f, 'd> {
 impl<'f, 'd: 'f> StringIndexScanner<'f, 'd> {
     fn cmp_value(&mut self, k: Option<&[u8]>, v: &[u8]) -> bool {
         let mut result = false;
-        let input = self.input.as_slice();
+        let input = self.value.as_slice();
         match self.op {
             CO => {
                 if let Some(k) = k {
@@ -120,9 +134,12 @@ impl<'f, 'd: 'f> StringIndexScanner<'f, 'd> {
                 }
             },
             EQ => {
-                if k.is_some() {
-                    if input == v {
-                        result = true;
+                if let Some(k) = k {
+                    if self.modifier == Modifier::Exact {
+                        result = input == v;
+                    }
+                    else {
+                        result = input == k;
                     }
                 }
             },
@@ -167,6 +184,22 @@ impl<'f, 'd: 'f> StringIndexScanner<'f, 'd> {
                     result = k.starts_with(input);
                 }
             },
+            IN => {
+                if let Some(k) = k {
+                    for given in &self.values {
+                        if self.modifier == Modifier::Exact {
+                            result = given.as_slice() == v;
+                        }
+                        else {
+                            result = given.as_slice() == k;
+                        }
+
+                        if result {
+                            break;
+                        }
+                    }
+                }
+            },
             _ => {
                 warn!("{:?} operator is not supported on strings", self.op);
             }
@@ -189,6 +222,48 @@ fn contains_slice(src: &[u8], item: &[u8]) -> bool {
     false
 }
 
+fn split_delimited_values(value: &str, needle: char) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut ci = value.char_indices();
+    let mut prev = ' ';
+    let mut part = String::new();
+    loop {
+        match ci.next() {
+            Some((pos, c)) => {
+                if c == needle && prev != '\\' {
+                    if !part.is_empty() {
+                        parts.push(part.clone());
+                        part.clear();
+                    }
+                }
+                else if c == '\\' && prev != '\\' {
+                    // skip pushing escape secquence
+                }
+                else {
+                    part.push(c);
+                }
+                prev = c;
+            },
+            None => {
+                if !part.is_empty() {
+                    parts.push(part);
+                }
+                break;
+            }
+        }
+    }
+
+    parts
+}
+
+fn normalize(value: &str, modifier: &Modifier) -> Vec<u8> {
+    if modifier == &Modifier::Exact {
+        return value.as_bytes().to_vec();
+    }
+
+    value.to_lowercase().as_bytes().to_vec()
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Error;
@@ -203,7 +278,8 @@ mod tests {
         let (db, sd) = tc.setup_db_with_example_patient()?;
         let mut candidates = vec![];
         candidates.push(("name eq \"James\"", 1));
-        candidates.push(("name eq \"james\"", 0));
+        candidates.push(("name eq \"james\"", 1));
+        candidates.push(("name:exact eq \"james\"", 0));
         candidates.push(("name sw \"Jam\"", 1));
         candidates.push(("name sw \"jAM\"", 1));
         candidates.push(("name ew \"es\"", 1));
@@ -216,6 +292,8 @@ mod tests {
         candidates.push(("family ne \"chalmers\"", 1));
         candidates.push(("family gt \"windsor\"", 0));
         candidates.push(("family gt \"Windsor\"", 0));
+        candidates.push(("name eq \"not-James,james\"", 1));
+        candidates.push(("name:exact eq \"not-James,james\"", 0));
 
         for (input, expected) in candidates {
             println!("{}", input);
@@ -226,5 +304,21 @@ mod tests {
             assert_eq!(expected, key.len());
         }
         Ok(())
+    }
+
+    #[test]
+    fn test_split_delimited_values() {
+        let mut candidates = Vec::new();
+        candidates.push(("a,b\\,c", ',', vec!["a", "b,c"]));
+        candidates.push(("a,b\\,c,", ',', vec!["a", "b,c"]));
+        candidates.push(("a$b\\$c", '$', vec!["a", "b$c"]));
+        candidates.push(("a$b\\$c$", '$', vec!["a", "b$c"]));
+        candidates.push(("a|b\\|c", '|', vec!["a", "b|c"]));
+        candidates.push(("a|b\\|c|", '|', vec!["a", "b|c"]));
+        candidates.push(("a|b\\|c||", '|', vec!["a", "b|c"]));
+        for (input, delimiter, expected) in candidates {
+            let actual = split_delimited_values(input, delimiter);
+            assert_eq!(expected, actual);
+        }
     }
 }
