@@ -1,4 +1,4 @@
-use crate::api::base::RaResponse;
+use crate::api::base::{RaResponse, SearchQuery};
 use crate::barn::Barn;
 use crate::res_schema::SchemaDef;
 use crate::ResourceDef;
@@ -10,8 +10,9 @@ use crate::search::index_scanners::and_or::AndOrIndexScanner;
 use crate::search::index_scanners::not::NotIndexScanner;
 use crate::search::index_scanners::string::StringIndexScanner;
 
-pub fn execute_search_query(filter: &Filter, rd: &ResourceDef, db: &Barn, sd: &SchemaDef) -> Result<RaResponse, RaError> {
-    let idx = to_index_scanner(filter, rd, sd, db)?;
+pub fn execute_search_query(filter: &Filter, sq: &SearchQuery, rd: &ResourceDef, db: &Barn, sd: &SchemaDef) -> Result<RaResponse, RaError> {
+    let mut idx = to_index_scanner(filter, rd, sd, db)?;
+    let keys = idx.collect_all();
     Ok(RaResponse::Success)
 }
 

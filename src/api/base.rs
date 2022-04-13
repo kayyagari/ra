@@ -277,17 +277,17 @@ impl ApiBase {
         let mut filter;
         if query.params.len() == 1 {
             let (key, val) = query.params[0];
-            filter = param_to_filter(key, val);
+            filter = param_to_filter(key, val, &rd, &self.schema)?;
         }
         else {
             let mut children = Vec::new();
             for (key, val) in &query.params {
-                let sf = param_to_filter(key, val);
+                let sf = param_to_filter(key, val, &rd, &self.schema)?;
                 children.push(Box::new(sf));
             }
             filter = Filter::AndFilter {children};
         }
-        execute_search_query(&filter, rd, &self.db, &self.schema)
+        execute_search_query(&filter, query, rd, &self.db, &self.schema)
     }
 
     pub fn search(&self, rd: &ResourceDef, filter: &Ast) -> Result<RaResponse, RaError> {
