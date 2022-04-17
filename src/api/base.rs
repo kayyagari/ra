@@ -37,7 +37,7 @@ pub struct ConditionalHeaders<'r> {
     pub if_none_exist: Option<&'r str>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct OperationOutcome {
     #[serde(rename="resourceType")]
     rtype: &'static str,
@@ -45,7 +45,7 @@ pub struct OperationOutcome {
     issue: Vec<Box<BackboneElement>>
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct	BackboneElement {
     severity: IssueSeverity,
     code: IssueType,
@@ -53,13 +53,13 @@ struct	BackboneElement {
     //expression: Option<String>
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Narrative {
     status: NarrativeStatus,
     div: String
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum NarrativeStatus {
     Generated,
@@ -79,7 +79,8 @@ pub struct SearchQuery<'r> {
     pub contained: Contained,
     pub contained_type: ContainedType,
     pub summary: bool,
-    pub elements: bool
+    pub elements: bool,
+    pub ignore_unknown_params: bool
 }
 
 
@@ -274,20 +275,43 @@ impl ApiBase {
     pub fn search_query(&self, res_name: &str, query: &SearchQuery, hints: &ResponseHints) -> Result<RaResponse, RaError> {
         debug!("searching on {}", res_name);
         let rd = self.get_res_def_by_name(res_name)?;
-        let mut filter;
+        let mut filter= None;
         if query.params.len() == 1 {
             let (key, val) = query.params[0];
-            filter = param_to_filter(key, val, &rd, &self.schema)?;
+            let tmp = param_to_filter(key, val, &rd, &self.schema);
+            if let Err(e) = tmp {
+                if !query.ignore_unknown_params {
+                    return Err(RaError::BadRequest(e.to_string()));
+                }
+            }
+            else {
+                filter = Some(tmp.unwrap());
+            }
         }
         else {
             let mut children = Vec::new();
             for (key, val) in &query.params {
-                let sf = param_to_filter(key, val, &rd, &self.schema)?;
-                children.push(Box::new(sf));
+                let sf = param_to_filter(key, val, &rd, &self.schema);
+                if let Err(e) = sf {
+                    if !query.ignore_unknown_params {
+                        return Err(RaError::BadRequest(e.to_string()));
+                    }
+                }
+                else {
+                    children.push(Box::new(sf.unwrap()));
+                }
             }
-            filter = Filter::AndFilter {children};
+
+            if !children.is_empty() {
+                filter = Some(Filter::AndFilter {children});
+            }
         }
-        execute_search_query(&filter, query, rd, &self.db, &self.schema)
+
+        if let None = filter {
+            return Err(RaError::BadRequest(format!("none of the given search parameters are known to the server")));
+        }
+
+        execute_search_query(&filter.unwrap(), query, rd, &self.db, &self.schema)
     }
 
     pub fn search(&self, rd: &ResourceDef, filter: &Ast) -> Result<RaResponse, RaError> {

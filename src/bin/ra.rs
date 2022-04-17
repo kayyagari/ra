@@ -38,13 +38,7 @@ async fn main() {
         config.address = Ipv4Addr::new(0,0,0,0).into();
         config.port = 7090;
         config.cli_colors = false;
-
-        let mut server = rocket::build().manage(api_base).configure(config);
-        server = server.attach(AdHoc::on_request("Create trace ID", |req, _| Box::pin(async move {
-            log_mdc::insert("request_id", uuid::Uuid::new_v4().to_string());
-        }
-        )));
-        server.mount("/", routes![rest::create, rest::bundle, rest::search]).launch().await;
+        rest::mount(api_base, config).launch().await;
     }
     else if opts.is_present("import") {
         let import = opts.value_of("import").unwrap();

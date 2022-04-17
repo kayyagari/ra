@@ -1,10 +1,13 @@
-use crate::api::base::{RaResponse, SearchQuery};
+use std::io::Cursor;
+use bson::Document;
+use crate::api::base::{OperationOutcome, RaResponse, SearchQuery};
+use crate::api::bundle::{SearchEntry, SearchSet};
 use crate::barn::Barn;
 use crate::res_schema::SchemaDef;
 use crate::ResourceDef;
 use crate::search::{Filter, Modifier, SearchParamType};
 use crate::search::index_scanners::IndexScanner;
-use crate::errors::{EvalError, RaError};
+use crate::errors::{EvalError, IssueType, RaError};
 use crate::search::ComparisonOperator;
 use crate::search::index_scanners::and_or::AndOrIndexScanner;
 use crate::search::index_scanners::not::NotIndexScanner;
@@ -13,7 +16,26 @@ use crate::search::index_scanners::string::StringIndexScanner;
 pub fn execute_search_query(filter: &Filter, sq: &SearchQuery, rd: &ResourceDef, db: &Barn, sd: &SchemaDef) -> Result<RaResponse, RaError> {
     let mut idx = to_index_scanner(filter, rd, sd, db)?;
     let keys = idx.collect_all();
-    Ok(RaResponse::Success)
+    let mut ss = SearchSet::new();
+    let mut count = 0;
+    for (ref k, _) in keys {
+        let res = db.get_resource_by_pk(k)?;
+        if let Some(res) = res {
+            let mut cursor = Cursor::new(res.as_ref());
+            let doc = Document::from_reader(&mut cursor);
+            if let Err(e) = doc {
+                let msg = format!("error while deserializing the document data fetched from database ({})", e.to_string());
+                let oo = OperationOutcome::new_error(IssueType::Exception, msg);
+                return Err(RaError::Custom{code: 500, outcome: oo});
+            }
+            ss.add(doc.unwrap());
+            count += 1;
+            if count >= sq.count {
+                break;
+            }
+        }
+    }
+    Ok(RaResponse::SearchResult(ss))
 }
 
 pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd: &'f SchemaDef, db: &'d Barn) -> Result<Box<dyn IndexScanner + 'f>, EvalError> {

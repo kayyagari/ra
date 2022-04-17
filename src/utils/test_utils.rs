@@ -2,6 +2,7 @@ use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -9,8 +10,11 @@ use bson::Document;
 use bson::spec::ElementType;
 use rawbson::DocBuf;
 use rawbson::elem::Element;
+use rocket::{Build, Config, Rocket};
 use rocksdb::{DB, Options};
 use serde_json::{Map, Value};
+use crate::api::base::ApiBase;
+use crate::api::rest;
 use crate::barn::Barn;
 use crate::errors::RaError;
 use crate::rapath::scanner::scan_tokens;
@@ -19,7 +23,8 @@ use crate::rapath::parser::parse;
 use crate::res_schema::SchemaDef;
 
 pub struct TestContainer {
-    path: PathBuf
+    path: PathBuf,
+    initialized: RefCell<bool>
 }
 
 impl Drop for TestContainer {
@@ -35,16 +40,40 @@ impl Drop for TestContainer {
 impl TestContainer {
     pub fn new() -> Self {
         let path = PathBuf::from(format!("/tmp/testcontainer-{}", ksuid::Ksuid::generate().to_base62()));
-        Self{path}
+        Self{path, initialized: RefCell::new(false)}
+    }
+
+    pub fn create_server_with_example_patient(&self) -> Rocket<Build> {
+        if *self.initialized.borrow() {
+            panic!("container was already initialized");
+        }
+        let db = self.setup_db().expect("initialization of database failed");
+        let mut config = Config::default();
+        config.address = Ipv4Addr::new(0,0,0,0).into();
+        config.port = 7090;
+        config.cli_colors = false;
+        let api_base = ApiBase::new(db).unwrap();
+        let data = read_patient_example();
+        api_base.create("Patient", &data).expect("failed to insert example patient record");
+        *self.initialized.borrow_mut() = true;
+        rest::mount(api_base, config)
+    }
+
+    fn setup_db(&self) -> Result<Barn, RaError> {
+        Barn::open_with_default_schema(&self.path)
     }
 
     pub fn setup_db_with_example_patient(&self) -> Result<(Barn, SchemaDef), RaError> {
-        let barn = Barn::open_with_default_schema(&self.path)?;
+        if *self.initialized.borrow() {
+            panic!("container was already initialized");
+        }
+        let barn = self.setup_db()?;
         let sd = barn.build_schema_def()?;
         let patient_schema = sd.resources.get("Patient").unwrap();
         let data = read_patient_example();
         let data = bson::to_document(&data).unwrap();
         barn.insert(patient_schema, data, &sd, false)?;
+        *self.initialized.borrow_mut() = true;
         Ok((barn, sd))
     }
 }

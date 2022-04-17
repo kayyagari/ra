@@ -13,7 +13,7 @@ pub mod res_schema;
 mod context;
 pub mod errors;
 pub mod barn;
-mod utils;
+pub mod utils;
 mod dtypes;
 mod search;
 pub mod rapath;

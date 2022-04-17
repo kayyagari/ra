@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use bson::{Document};
 use ksuid::Ksuid;
 use serde::{Serialize, Serializer};
@@ -6,6 +7,7 @@ use serde::ser::{SerializeMap, SerializeStruct};
 use serde_json::Value;
 
 use crate::errors::RaError;
+use crate::utils::bson_utils::get_str;
 
 pub struct RequestBundle {
     pub btype: BundleType,
@@ -17,7 +19,14 @@ pub struct SearchSet {
 }
 
 pub struct SearchEntry {
-    pub resource: Document
+    pub resource: Document,
+    pub mode: SearchEntryMode
+}
+
+pub enum SearchEntryMode {
+    Match,
+    Include,
+    Outcome
 }
 
 #[derive(Serialize)]
@@ -96,7 +105,7 @@ impl SearchSet {
     }
 
     pub fn add(&mut self, d: Document) {
-        self.entries.push(SearchEntry{resource: d});
+        self.entries.push(SearchEntry{resource: d, mode: SearchEntryMode::Match});
     }
 
     pub fn len(&self) -> usize {
@@ -243,6 +252,7 @@ impl Serialize for SearchSet {
         state.serialize_field("resourceType", "Bundle");
         state.serialize_field("type", "searchset");
         state.serialize_field("id", &uuid::Uuid::new_v4().to_string());
+        state.serialize_field("count", &self.entries.len());
 
         state.serialize_field("entries", &self.entries);
         state.end()
@@ -252,8 +262,37 @@ impl Serialize for SearchSet {
 impl Serialize for SearchEntry {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         let mut state = serializer.serialize_map(Some(2))?;
-        state.serialize_entry("fullUrl", self.resource.get_str("id").unwrap());
+        let res_name = get_str(&self.resource, "resourceType");
+        let id = get_str(&self.resource,"id");
+        // TODO add the prefix the baseurl
+        let full_url = format!("{}/{}", res_name, id);
+        state.serialize_entry("fullUrl", full_url.as_str());
         state.serialize_entry("resource", &self.resource);
+
+        //let mode = HashMap::new();
+        state.serialize_key("search");
+        state.serialize_value(&self.mode);
+
+        state.end()
+    }
+}
+
+impl Serialize for SearchEntryMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_map(Some(1))?;
+        state.serialize_key("mode");
+        match self {
+            SearchEntryMode::Match => {
+                state.serialize_value("match");
+            },
+            SearchEntryMode::Include => {
+                state.serialize_value("include");
+            },
+            SearchEntryMode::Outcome => {
+                state.serialize_value("outcome");
+            }
+        }
+
         state.end()
     }
 }
@@ -281,6 +320,7 @@ mod tests {
         let mut ss = SearchSet::new();
         ss.add(doc! {"id": "id", "k1": "v1"});
         let val = serde_json::to_string(&ss)?;
+        println!("{}", &val);
         assert!(val.len() > 0);
         Ok(())
     }

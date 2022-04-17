@@ -20,7 +20,7 @@ use log::{debug, error, info, trace, warn};
 use rawbson::de::BsonDeserializer;
 use rawbson::{Doc, DocBuf};
 use rawbson::elem::Element;
-use rocksdb::{DB, DBCompressionType, DBIterator, Env, Options, WriteBatch};
+use rocksdb::{DB, DBCompressionType, DBIterator, DBPinnableSlice, Env, Options, WriteBatch};
 use serde_json::Value;
 use thiserror::private::PathAsDisplay;
 use crate::api::bundle::SearchSet;
@@ -238,8 +238,16 @@ impl Barn {
 
 
 
-    // pub fn get(&self, id: u64, res_name: String) -> Result<Document, RaError> {
-    // }
+    pub fn get_resource_by_pk(&self, pk: &[u8; 24]) -> Result<Option<DBPinnableSlice>, RaError> {
+        let res = self.db.get_pinned(pk);
+        if let Err(e) = res {
+            let msg = "unable to read the resource with the given primary key from database";
+            warn!("{}", msg);
+            return Err(RaError::DbError(String::from(msg)));
+        }
+
+        Ok(res.unwrap())
+    }
 
     pub fn search<'a>(&self, res_def: &ResourceDef, filter: &'a Ast<'a>) -> Result<SearchSet, EvalError> {
         let mut results = SearchSet::new();

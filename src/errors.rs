@@ -5,6 +5,7 @@ use bson::document::ValueAccessError;
 use rawbson::RawError;
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
+use crate::api::base::OperationOutcome;
 
 #[derive(Debug, Error)]
 pub enum RaError {
@@ -21,26 +22,17 @@ pub enum RaError {
     #[error("{0}")]
     SearchParamParsingError(String),
     #[error("")]
-    SchemaValidationError
+    SchemaValidationError,
+    #[error("")]
+    Custom {
+        code: u16,
+        outcome: OperationOutcome
+    }
 }
 
 impl RaError {
     pub fn bad_req<S: AsRef<str>>(msg: S) -> Self {
         Self::BadRequest(String::from(msg.as_ref()))
-    }
-
-    fn to_string(&self) -> String {
-        use RaError::*;
-        let s = match self {
-            DbError(s) => s.as_str(),
-            BadRequest(s) => s.as_str(),
-            NotFound(s) => s.as_str(),
-            SchemaParsingError(s) => s.as_str(),
-            SearchParamParsingError(s) => s.as_str(),
-            SchemaValidationError => "schema validation error"
-        };
-
-        String::from(s)
     }
 }
 
@@ -175,7 +167,7 @@ impl Display for ScanError {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum IssueSeverity {
     Fatal,
@@ -184,7 +176,7 @@ pub enum IssueSeverity {
     Information
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[allow(non_camel_case_types)]
 #[rustfmt::skip]

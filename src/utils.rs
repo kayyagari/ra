@@ -1,6 +1,5 @@
 use crc32fast::Hasher;
 
-#[cfg(test)]
 pub mod test_utils;
 
 pub mod bson_utils;

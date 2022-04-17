@@ -3,8 +3,9 @@ use std::io::{BufWriter, Cursor, Sink};
 use chrono::Utc;
 use log::debug;
 
-use rocket::{Config, Data, get, post, Request, Response, State};
+use rocket::{Build, Config, Data, get, post, Request, Response, Rocket, routes, State};
 use rocket::data::{DataStream, FromData};
+use rocket::fairing::AdHoc;
 use rocket::form::{Form, FromForm};
 use rocket::http::{ContentType, Header, Status};
 use rocket::http::hyper::header::LAST_MODIFIED;
@@ -36,6 +37,7 @@ impl<'r> FromRequest<'r> for SearchQuery<'r> {
         let mut contained_type = ContainedType::Container;
         let mut elements = false;
         let mut summary = false;
+        let mut ignore_unknown_params = false;
 
         for item in request.query_fields() {
             match item.name.as_name().as_str() {
@@ -87,7 +89,25 @@ impl<'r> FromRequest<'r> for SearchQuery<'r> {
                 }
             }
         }
-        let sq = SearchQuery {params, sort, count, include, revinclude, summary, total, elements, contained, contained_type};
+
+        for item in request.headers().get("Prefer") {
+            let mut parts = item.splitn(2, "=");
+            if let Some(h) = parts.next() {
+                if h == "handling" {
+                    if let Some(v) = parts.next() {
+                        if v == "strict" {
+                            ignore_unknown_params = false;
+                        }
+                        else if v == "lenient" {
+                            ignore_unknown_params = true;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        let sq = SearchQuery {params, sort, count, include, revinclude, summary, total, elements, contained, contained_type, ignore_unknown_params};
         Outcome::Success(sq)
     }
 }
@@ -180,6 +200,16 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaError {
             RaError::NotFound(s) => {
                 oo = OperationOutcome::new_error(IssueType::Not_found, s);
                 status = Status::NotFound;
+            },
+            RaError::Custom {code, outcome} => {
+                oo = outcome;
+                if let Some(code) = Status::from_code(code) {
+                    status = code;
+                }
+                else {
+                    // fallback to 500 if the code is unknown
+                    status = Status::InternalServerError;
+                }
             }
         }
 
@@ -245,6 +275,15 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaResponse {
             }
         }
     }
+}
+
+pub fn mount(api_base: ApiBase, config: Config) -> Rocket<Build> {
+    let mut server = rocket::build().manage(api_base).configure(config);
+    server = server.attach(AdHoc::on_request("Create trace ID", |req, _| Box::pin(async move {
+        log_mdc::insert("request_id", uuid::Uuid::new_v4().to_string());
+    }
+    )));
+    server.mount("/", routes![create, bundle, search])
 }
 
 fn parse_input(d: &[u8]) -> Result<Value, RaError> {
