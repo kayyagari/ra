@@ -59,6 +59,18 @@ impl TestContainer {
         rest::mount(api_base, config)
     }
 
+    pub fn setup_api_base_with_example_patient(&self) -> ApiBase {
+        if *self.initialized.borrow() {
+            panic!("container was already initialized");
+        }
+        let db = self.setup_db().expect("initialization of database failed");
+        let api_base = ApiBase::new(db).unwrap();
+        let data = read_patient_example();
+        api_base.create("Patient", &data).expect("failed to insert example patient record");
+        *self.initialized.borrow_mut() = true;
+        api_base
+    }
+
     fn setup_db(&self) -> Result<Barn, RaError> {
         Barn::open_with_default_schema(&self.path)
     }
@@ -81,6 +93,11 @@ impl TestContainer {
 pub fn read_patient() -> Value {
     let f = File::open("test_data/resources/patient-example-a.json").expect("file patient-example-a.json not found");
     serde_json::from_reader(f).expect("couldn't deserialize the example patient-a JSON")
+}
+
+pub fn read_bundle() -> Value {
+    let f = File::open("test_data/resources/bundle-example.json").expect("file bundle-example.json not found");
+    serde_json::from_reader(f).expect("deserialize the bundle-example JSON")
 }
 
 // named after the file taken from FHIR examples from hl7.org

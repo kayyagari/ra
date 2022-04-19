@@ -8,7 +8,7 @@ use log::{debug, trace};
 use rawbson::elem::Element;
 use rocksdb::WriteBatch;
 use crate::barn::{Barn, CF_INDEX, ResolvableContext};
-use crate::errors::RaError;
+use crate::errors::{EvalError, RaError};
 use crate::rapath::element_utils;
 use crate::rapath::engine::eval;
 use crate::rapath::parser::{parse, parse_with_schema};
@@ -62,61 +62,7 @@ impl Barn {
             self.index_searchparams(wb, &pk, &vec_bytes, res_def, sd)?;
         }
 
-        // handle references
-        for (ref_prop, _) in &res_def.ref_props {
-            let ref_node = data.get(ref_prop.as_str());
-            if let Some(ref_node) = ref_node {
-                match ref_node.element_type() {
-                    ElementType::Array => {
-                        let ref_arr = ref_node.as_array();
-                        if let Some(ref_arr) = ref_arr {
-                            for item in ref_arr.iter() {
-                                self.insert_ref(ref_prop, ksid.as_bytes(), item, res_def, wb, sd);
-                            }
-                        }
-                    },
-                    _ => {
-                        self.insert_ref(ref_prop, ksid.as_bytes(), ref_node, res_def, wb, sd);
-                    }
-                }
-            }
-        }
         Ok((data, vec_bytes, pk))
-    }
-
-    fn insert_ref<S: AsRef<str>>(&self, ref_at_name: S, from_id: &[u8], item: &Bson, from: &ResourceDef, wb: &mut WriteBatch, sd: &SchemaDef) -> Result<(), RaError> {
-        if let Some(item) = item.as_document() {
-            if let Some(target) = item.get("reference") {
-                if let Some(target) = target.as_str() {
-                    let parts: Vec<&str> = target.split("/").collect();
-                    if parts.len() == 2 {
-                        let to = sd.resources.get(parts[0]);
-                        if let None = to {
-                            return Err(RaError::bad_req(format!("resource not found with the name {} in the reference {}", parts[0], target)));
-                        }
-                        let to_id = Ksuid::from_base62(parts[1]);
-                        if let Err(e) = to_id {
-                            return Err(RaError::bad_req(format!("reference ID {} is in invalid format", parts[1])));
-                        }
-                        let to = to.unwrap();
-                        let to_id = to_id.unwrap();
-                        let empty_val: &[u8;0] = &[0;0];
-                        let fwd_id = from.new_ref_fwd_id(ref_at_name, from_id, to, to_id.as_bytes());
-                        wb.put(fwd_id, empty_val);
-
-                        let rev_id = from.new_ref_rev_id(to_id.as_bytes(), to, from_id);
-                        wb.put(rev_id, empty_val);
-                    }
-                    else {
-                        return Err(RaError::bad_req(format!("invalid format of reference {}, should be <Resource-name>/<ID>", target)));
-                    }
-                }
-                else {
-                    // TODO is this necessary to log or will the validation ensure that this case is covered?
-                }
-            }
-        }
-        Ok(())
     }
 
     pub fn index_searchparams(&self, wb: &mut WriteBatch, pk: &[u8; 24], res_data: &Vec<u8>, rd: &ResourceDef, sd: &SchemaDef) -> Result<(), RaError> {
@@ -142,7 +88,7 @@ impl Barn {
             let result = eval(&ctx, &ast, Rc::clone(&base))?;
 
             let mut rows: Vec<Option<(Vec<u8>, Vec<u8>)>> = Vec::new();
-            format_index_rows(result, spd, expr, pk, &mut rows);
+            format_index_rows(result, spd, expr, sd, pk, &mut rows);
             for row in rows {
                 if let Some((k, v)) = row {
                     wb.put_cf(cf, k.as_slice(), v.as_slice());
@@ -154,16 +100,16 @@ impl Barn {
     }
 }
 
-fn format_index_rows(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &SearchParamExpr, pk: &[u8; 24], rows: &mut Vec<Option<(Vec<u8>, Vec<u8>)>>) -> Result<(), RaError> {
+fn format_index_rows(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &SearchParamExpr, sd: &SchemaDef, pk: &[u8; 24], rows: &mut Vec<Option<(Vec<u8>, Vec<u8>)>>) -> Result<(), RaError> {
     match expr_result.borrow() {
         SystemType::Collection(c) => {
             if c.is_empty() {
-                let r = format_index_row(expr_result, spd, expr, pk);
+                let r = format_index_row(expr_result, spd, expr, sd, pk)?;
                 rows.push(r);
             }
             else {
                 for item in c.iter() {
-                    format_index_rows(Rc::clone(item), spd, expr, pk, rows)?;
+                    format_index_rows(Rc::clone(item), spd, expr, sd, pk, rows)?;
                 }
             }
         },
@@ -173,17 +119,17 @@ fn format_index_rows(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &S
                 element_utils::gather_string_values(e, &mut strings)?;
                 for s in strings {
                     let str_result = Rc::new(SystemType::String(SystemString::from_slice(s)));
-                    let r = format_index_row(str_result, spd, expr, pk);
+                    let r = format_index_row(str_result, spd, expr, sd, pk)?;
                     rows.push(r);
                 }
             }
             else {
-                let r = format_index_row(expr_result, spd, expr, pk);
+                let r = format_index_row(expr_result, spd, expr, sd, pk)?;
                 rows.push(r);
             }
         },
         _ => {
-            let r = format_index_row(expr_result, spd, expr, pk);
+            let r = format_index_row(expr_result, spd, expr, sd, pk)?;
             rows.push(r);
         }
     }
@@ -191,7 +137,7 @@ fn format_index_rows(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &S
     Ok(())
 }
 
-fn format_index_row(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &SearchParamExpr, pk: &[u8; 24]) -> Option<(Vec<u8>, Vec<u8>)> {
+fn format_index_row(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &SearchParamExpr, sd: &SchemaDef, pk: &[u8; 24]) -> Result<Option<(Vec<u8>, Vec<u8>)>, RaError> {
     let mut key: Vec<u8> = Vec::new();
     let mut value: Vec<u8> = Vec::new();
     key.extend_from_slice(&expr.hash); // the index number
@@ -199,28 +145,28 @@ fn format_index_row(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &Se
     if !expr_result.is_truthy() {
         key.push(0); // NULL value flag
         key.extend_from_slice(pk);
-        return Some((key, value));
-    }
-    else {
-        key.push(1); // non-NULL value flag
+        return Ok(Some((key, value)));
     }
 
     let expr_result = expr_result.borrow();
     match spd.param_type {
         SearchParamType::String => {
             if let SystemType::String(s) = expr_result {
+                key.push(1);
                 key.extend_from_slice(s.as_str().to_lowercase().as_bytes()); // key always holds the lowercase value
                 value.extend_from_slice(s.as_str().as_bytes()); // value will contain the string as is
             }
         },
         SearchParamType::Number => {
             if let SystemType::Number(n) = expr_result {
+                key.push(1);
                 key.extend_from_slice(&n.as_f64().to_le_bytes()); // store the number always as a float
                 // value need not be stored
             }
         },
         SearchParamType::Date => {
             if let SystemType::DateTime(sd) = expr_result {
+                key.push(1);
                 key.extend_from_slice(&sd.millis().to_le_bytes());
             }
         },
@@ -230,8 +176,19 @@ fn format_index_row(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &Se
         // },
         // SearchParamType::Token => {
         // },
-        // SearchParamType::Reference => {
-        // },
+        SearchParamType::Reference => {
+            if let SystemType::Element(e) = expr_result {
+                let ref_id_and_version = get_reference_val_from(e, sd)?;
+                if let Some((ref_id, version)) = ref_id_and_version {
+                    key.push(1);
+                    key.extend_from_slice(&ref_id);
+
+                    if let Some(version) = version {
+                        value.extend_from_slice(&version.to_le_bytes());
+                    }
+                }
+            }
+        },
         // SearchParamType::Composite => {
         // },
         // SearchParamType::Uri => {
@@ -242,7 +199,44 @@ fn format_index_row(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &Se
     }
 
     key.extend_from_slice(pk);
-    Some((key, value))
+    Ok(Some((key, value)))
+}
+
+fn get_reference_val_from(el: &Element, sd: &SchemaDef) -> Result<Option<([u8; 24], Option<u32>)>, RaError> {
+    if let Ok(el) = el.as_document() {
+        if let Ok(target) = el.get_str("reference") {
+            if let Some(target) = target {
+                let parts: Vec<&str> = target.split("/").collect();
+                if parts.len() == 2 {
+                    let to = sd.resources.get(parts[0]).unwrap();
+                    // split again to extract version
+                    let mut parts = parts[1].splitn(2, "|");
+                    if let Some(res_id) = parts.next() {
+                        let to_id = Ksuid::from_base62(res_id);
+                        if let Err(e) = to_id {
+                            return Err(RaError::BadRequest(format!("invalid resource ID in reference {} ({})", target, e.to_string())));
+                        }
+                        let to_id = to_id.unwrap();
+                        let mut ref_id: [u8; 24] = [0; 24];
+                        ref_id[..4].copy_from_slice(&to.hash);
+                        ref_id[4..].copy_from_slice(to_id.as_bytes());
+
+                        let mut version = None;
+                        if let Some(v) = parts.next() {
+                            let tmp = v.parse::<u32>();
+                            if let Err(e) = tmp {
+                                return Err(RaError::BadRequest(format!("invalid version number in reference {} ({})", target, e.to_string())));
+                            }
+                            version = Some(tmp.unwrap());
+                        }
+                        return Ok(Some((ref_id, version)));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -253,10 +247,11 @@ mod tests {
     use bson::doc;
     use rawbson::DocBuf;
     use serde_json::Value;
+    use crate::api::base::ApiBase;
     use crate::configure_log4rs;
     use crate::rapath::stypes::SystemString;
     use crate::res_schema::{parse_res_def, parse_search_param};
-    use crate::utils::test_utils::read_patient;
+    use crate::utils::test_utils::{read_bundle, read_patient, TestContainer};
     use super::*;
 
     #[test]
@@ -277,7 +272,7 @@ mod tests {
         let pk = sd.resources.get("Patient").unwrap().new_id(pk);
         let expr = spd.expressions.get("Patient").unwrap().as_ref().unwrap();
         let expr_result = Rc::new(SystemType::String(SystemString::from_slice(str_val)));
-        let (k, v) = format_index_row(expr_result, &spd, expr, &pk).unwrap();
+        let (k, v) = format_index_row(expr_result, &spd, expr, &sd, &pk).unwrap().unwrap();
         assert_eq!(&expr.hash, &k[..4]);
         assert_eq!(1u8, k[4]);
         let str_bytes = str_val.to_lowercase();
@@ -291,22 +286,15 @@ mod tests {
     #[test]
     fn test_insert() -> Result<(), anyhow::Error> {
         //configure_log4rs();
-        let path = PathBuf::from("/tmp/insert_test_insert");
-        std::fs::remove_dir_all(&path);
-        let barn = Barn::open_with_default_schema(&path)?;
-        let sd = barn.build_schema_def()?;
-        let (spd, expr) = sd.get_search_param_expr_for_res(&String::from("family"), &String::from("Patient")).unwrap();
+        let tc = TestContainer::new();
+        let api_base = tc.setup_api_base_with_example_patient();
+        let (spd, expr) = api_base.schema.get_search_param_expr_for_res("family", "Patient").unwrap();
         let expr = expr.unwrap();
-        let patient_schema = sd.resources.get("Patient").unwrap();
-        let data = read_patient();
-        let data = bson::to_document(&data).unwrap();
+        let patient_schema = api_base.schema.resources.get("Patient").unwrap();
 
-        let mut data = barn.insert(patient_schema, data, &sd, false)?;
-        let inserted_data = DocBuf::from_document(&data);
-        let inserted_data = Element::new(ElementType::EmbeddedDocument, inserted_data.as_bytes());
-
-        let cf = barn.db.cf_handle(CF_INDEX).unwrap();
-        let mut itr = barn.db.prefix_iterator_cf(cf, expr.hash);
+        let db = &api_base.db.db;
+        let cf = db.cf_handle(CF_INDEX).unwrap();
+        let mut itr = db.prefix_iterator_cf(cf, expr.hash);
         // for row in itr {
         //     let pos = row.0.len() - 24;
         //     let hasVal = row.0[4] == 1;
@@ -320,10 +308,22 @@ mod tests {
         //     println!("{:?} {}", &row.0[..4], v);
         // }
         let (k, v) = itr.next().unwrap();
-        assert_eq!(6, v.len()); // Donald
-        assert_eq!(35, k.len());
+        assert_eq!(8, v.len()); // Chalmers
+        assert_eq!(37, k.len());
 
-        std::fs::remove_dir_all(&path);
+        let (spd, expr) = api_base.schema.get_search_param_expr_for_res("patient", "Encounter").unwrap();
+        let expr = expr.unwrap();
+        let mut itr = db.prefix_iterator_cf(cf, expr.hash);
+        let (k, v) = itr.next().unwrap();
+        assert_ne!(expr.hash, &k[0..4]);
+
+        let bundle = read_bundle();
+        api_base.bundle(bundle).unwrap();
+        let mut itr = db.prefix_iterator_cf(cf, expr.hash);
+        let (k, v) = itr.next().unwrap();
+        assert_eq!(expr.hash, &k[0..4]);
+        assert_eq!(53, k.len());
+
         Ok(())
     }
 }

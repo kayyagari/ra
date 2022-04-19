@@ -23,8 +23,8 @@ use crate::search::executor::execute_search_query;
 use crate::search::filter_converter::param_to_filter;
 
 pub struct ApiBase {
-    db: Barn,
-    schema: SchemaDef
+    pub(crate) db: Barn,
+    pub(crate) schema: SchemaDef
 }
 
 pub enum RaResponse {
