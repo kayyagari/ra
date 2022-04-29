@@ -295,10 +295,10 @@ mod tests {
         candidates.push(("name eq \"not-James,james\"", 1));
         candidates.push(("name:exact eq \"not-James,james\"", 0));
 
+        let rd = sd.resources.get("Patient").unwrap();
         for (input, expected) in candidates {
             println!("{}", input);
             let filter = search::parse_filter(input)?;
-            let rd = sd.resources.get("Patient").unwrap();
             let mut idx_scanner = to_index_scanner(&filter, &rd, &sd, &db)?;
             let key = idx_scanner.collect_all();
             assert_eq!(expected, key.len());
