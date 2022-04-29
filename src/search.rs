@@ -102,7 +102,7 @@ impl From<&str> for Modifier {
             "exact" => Modifier::Exact,
             "contains" => Modifier::Contains,
             "identifier" => Modifier::Identifier,
-            _ => Modifier::None
+            _ => Modifier::Custom(name.to_string())
         }
     }
 }
@@ -199,7 +199,7 @@ pub enum ComparisonOperator {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FilterType {
     Simple,
-    QueryParam,
+    ReferenceParam,
     Conditional,
     And,
     Not,
@@ -213,11 +213,10 @@ pub enum Filter<'r> {
         operator: ComparisonOperator,
         value: String
     },
-    QueryParamFilter {
+    ReferenceFilter {
         identifier: &'r str,
         modifier: Modifier,
-        value: &'r str,
-        operator: ComparisonOperator
+        value: &'r str
     },
     ConditionalFilter {
         identifier: String,
@@ -243,7 +242,7 @@ impl Filter<'_> {
         use FilterType::*;
         match self {
             SimpleFilter {..} => Simple,
-            QueryParamFilter {..} => QueryParam,
+            ReferenceFilter {..} => ReferenceParam,
             ConditionalFilter {..} => Conditional,
             AndFilter {..} => And,
             OrFilter {..} => Or,
@@ -255,7 +254,7 @@ impl Filter<'_> {
         use Filter::*;
         match self {
             SimpleFilter {identifier, operator, value} => format!("({} {:?} {})", identifier, operator, value),
-            QueryParamFilter{identifier, modifier, operator, value} => format!(""),
+            ReferenceFilter {identifier, value, modifier} => format!(""),
             ConditionalFilter {identifier, condition,
                      id_path, operator,
                      value} => format!("({}[{}]{} {:?} {})", identifier, condition.to_string(), id_path, operator, value),

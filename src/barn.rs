@@ -56,7 +56,9 @@ pub struct Barn {
     opts: Options
 }
 
-struct ResourceIterator<'d> {
+/// used only for internal testing purpose
+/// this iterator copies the memory before returning an item
+pub struct ResourceIterator<'d> {
     inner: DBIterator<'d>,
     prefix: &'d[u8]
 }
@@ -220,6 +222,12 @@ impl Barn {
             schema.add_search_param(spd);
         }
         Ok(schema)
+    }
+
+    pub fn get_resource_iter<'d>(&'d self, rd: &'d ResourceDef) -> ResourceIterator {
+        let prefix = &rd.hash;
+        let inner: rocksdb::DBIterator = self.db.prefix_iterator(prefix);
+        ResourceIterator{inner, prefix}
     }
 
     pub fn insert(&self, res_def: &ResourceDef, mut data: Document, sd: &SchemaDef, skip_indexing: bool) -> Result<Document, RaError> {

@@ -8,6 +8,7 @@ use crate::search::ComparisonOperator;
 pub mod string;
 pub mod and_or;
 pub mod not;
+pub mod reference;
 
 pub type SelectedResourceKey = Result<Option<[u8; 24]>, EvalError>;
 
