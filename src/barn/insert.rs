@@ -88,7 +88,7 @@ impl Barn {
             let result = eval(&ctx, &ast, Rc::clone(&base))?;
 
             let mut rows: Vec<Option<(Vec<u8>, Vec<u8>)>> = Vec::new();
-            format_index_rows(result, spd, expr, sd, pk, &mut rows);
+            format_index_rows(result, spd, expr, sd, pk, &mut rows)?;
             for row in rows {
                 if let Some((k, v)) = row {
                     wb.put_cf(cf, k.as_slice(), v.as_slice());
