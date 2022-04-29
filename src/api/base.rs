@@ -274,7 +274,7 @@ impl ApiBase {
 
     pub fn search_query(&self, res_name: &str, query: &SearchQuery, hints: &ResponseHints) -> Result<RaResponse, RaError> {
         debug!("searching on {}", res_name);
-        let rd = self.get_res_def_by_name(res_name)?;
+        let rd = self.schema.get_res_def_by_name(res_name)?;
         let mut filter= None;
         if query.params.len() == 1 {
             let (key, val) = query.params[0];
@@ -319,18 +319,9 @@ impl ApiBase {
         Ok(RaResponse::SearchResult(result))
     }
 
-    fn get_res_def_by_name(&self, name: &str) -> Result<&ResourceDef, RaError>{
-        let rd = self.schema.resources.get(name);
-        if let None = rd {
-            return Err(RaError::NotFound(format!("unknown resourceType {}", name)));
-        }
-
-        Ok(rd.unwrap())
-    }
-
     fn get_res_def(&self, d: &Document) -> Result<&ResourceDef, RaError>{
         let res_type = d.get_str("resourceType")?;
-        self.get_res_def_by_name(res_type)
+        self.schema.get_res_def_by_name(res_type)
     }
 }
 

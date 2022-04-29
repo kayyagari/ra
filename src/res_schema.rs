@@ -173,6 +173,16 @@ impl SchemaDef {
 
         None
     }
+
+    #[inline]
+    pub fn get_res_def_by_name(&self, name: &str) -> Result<&ResourceDef, RaError>{
+        let rd = self.resources.get(name);
+        if let None = rd {
+            return Err(RaError::NotFound(format!("unknown resourceType {}", name)));
+        }
+
+        Ok(rd.unwrap())
+    }
 }
 
 pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
