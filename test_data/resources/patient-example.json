@@ -159,9 +159,6 @@
       }
     }
   ],
-  "managingOrganization": {
-    "reference": "Organization/1"
-  },
   "meta": {
     "tag": [
       {
