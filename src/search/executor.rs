@@ -2,6 +2,7 @@ use std::io::Cursor;
 use std::process::id;
 use bson::Document;
 use ksuid::Ksuid;
+use log::debug;
 use crate::api::base::{OperationOutcome, RaResponse, SearchQuery};
 use crate::api::bundle::{SearchEntry, SearchSet};
 use crate::barn::Barn;
@@ -10,6 +11,8 @@ use crate::ResourceDef;
 use crate::search::{Filter, Modifier, SearchParamType};
 use crate::search::index_scanners::{IndexScanner, reference};
 use crate::errors::{EvalError, IssueType, RaError};
+use crate::rapath::parser::parse;
+use crate::rapath::scanner::scan_tokens;
 use crate::search::ComparisonOperator;
 use crate::search::index_scanners::and_or::AndOrIndexScanner;
 use crate::search::index_scanners::not::NotIndexScanner;
@@ -63,31 +66,56 @@ pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd:
                     idx_scanner = Box::new(tmp);
                 },
                 SearchParamType::Reference => {
-                    let (ref_id, mut ref_type) = parse_ref_val(value)?;
                     let itr = db.new_index_iter(&sp_expr.hash);
-                    if let Modifier::Custom(ref s) = modifier {
-                        if s == "identifier" {
-                            if let Some(path) = path {
-                                return Err(EvalError::new(format!("chaining is not supporrted when identifier is used as the modifier")));
-                            }
-                            // do identifier search
+                    if modifier == Modifier::Identifier {
+                        if let Some(path) = path {
+                            return Err(EvalError::new(format!("chaining is not supporrted when identifier is used as the modifier")));
                         }
-                        else {
-                            if let Some(rt) = ref_type {
-                                // check that the given ResourceType in modifier is same as the one present in
-                                // the value e.g subject:Patient = Patient/1
-                                // if not, throw an error
-                                if rt != s {
-                                    return Err(EvalError::new(format!("mismatched resourceType names in modifier({}) and reference({})", s, rt)));
-                                }
+                        // do identifier search
+                        let (system, code) = parse_identifier(value);
+                        let mut rpath_expr = String::with_capacity(100);
+                        if let Some(system) = system {
+                            rpath_expr.push_str(format!("identifier.where(system = '{}'", system).as_str());
+                            if let Some(code) = code {
+                                rpath_expr.push_str(format!(" and value = '{}')", code).as_str());
                             }
                             else {
-                                let rd = sd.get_res_def_by_name(s);
-                                if let Err(e) = rd {
-                                    return Err(EvalError::new(format!("unknown resourceType {}", s)));
-                                }
-                                ref_type = Some(&rd.unwrap().name);
+                                rpath_expr.push_str(")");
                             }
+                        }
+                        else if let Some(code) = code {
+                            rpath_expr.push_str(format!("identifier.where(value = '{}')", code).as_str());
+                        }
+
+                        debug!("using rapath expression {}", &rpath_expr);
+                        let tokens = scan_tokens(&rpath_expr);
+                        if let Err(e) = tokens {
+                            return Err(EvalError::new(format!("failed to tokenize the FHIRPath expression: {}", e)));
+                        }
+                        let rpath_expr = parse(tokens.unwrap());
+                        if let Err(e) = rpath_expr {
+                            return Err(EvalError::new(format!("failed to parse the FHIRPath expression: {}", e)));
+                        }
+                        let tmp = reference::new_reference_id_scanner(rpath_expr.unwrap(), db, &sp_expr.hash);
+                        return Ok(Box::new(tmp));
+                    }
+
+                    let (ref_id, mut ref_type) = parse_ref_val(value)?;
+                    if let Modifier::Custom(ref s) = modifier {
+                        if let Some(rt) = ref_type {
+                            // check that the given ResourceType in modifier is same as the one present in
+                            // the value e.g subject:Patient = Patient/1
+                            // if not, throw an error
+                            if rt != s {
+                                return Err(EvalError::new(format!("mismatched resourceType names in modifier({}) and reference({})", s, rt)));
+                            }
+                        }
+                        else {
+                            let rd = sd.get_res_def_by_name(s);
+                            if let Err(e) = rd {
+                                return Err(EvalError::new(format!("unknown resourceType {}", s)));
+                            }
+                            ref_type = Some(&rd.unwrap().name);
                         }
                     }
 
@@ -105,7 +133,7 @@ pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd:
                     }
 
                     // do normal reference search
-                    let tmp = reference::new(ref_id, ref_type_hash, itr, &sp_expr.hash, modifier);
+                    let tmp = reference::new_reference_scanner(ref_id, ref_type_hash, itr, &sp_expr.hash, modifier);
                     idx_scanner = Box::new(tmp);
                 },
                 _ => {
@@ -185,6 +213,31 @@ fn parse_ref_val(ref_val: &str) -> Result<(Ksuid, Option<&str>), EvalError> {
     }
 
     Ok((id.unwrap(), ref_type))
+}
+
+/// Parses the given identifier token and returns (<system>, <code>) tuple
+fn parse_identifier(value: &str) -> (Option<&str>, Option<&str>) {
+    let separator = value.find("|");
+    if let None = separator {
+        return (None, Some(value));
+    }
+
+    let separator = separator.unwrap();
+    if separator == 0 {
+        let mut code = None;
+        if value.len() > 1 {
+            code = Some(&value[1..]);
+        }
+        return (None, code);
+    }
+    let mut id_parts = value.split_terminator("|");
+    let system = Some(id_parts.next().unwrap());
+    let mut code = None;
+    if let Some(c) = id_parts.next() {
+        code = Some(c);
+    }
+
+    (system, code)
 }
 
 #[cfg(test)]
