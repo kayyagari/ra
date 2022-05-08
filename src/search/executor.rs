@@ -2,7 +2,9 @@ use std::io::Cursor;
 use std::process::id;
 use bson::Document;
 use ksuid::Ksuid;
+use lazy_static::lazy_static;
 use log::debug;
+use regex::Regex;
 use crate::api::base::{OperationOutcome, RaResponse, SearchQuery};
 use crate::api::bundle::{SearchEntry, SearchSet};
 use crate::barn::Barn;
@@ -18,6 +20,9 @@ use crate::search::index_scanners::and_or::AndOrIndexScanner;
 use crate::search::index_scanners::not::NotIndexScanner;
 use crate::search::index_scanners::string::StringIndexScanner;
 
+lazy_static! {
+    static ref HTTP_RE: Regex = Regex::new(r"(?i)^((http|https)://)").unwrap();
+}
 pub fn execute_search_query(filter: &Filter, sq: &SearchQuery, rd: &ResourceDef, db: &Barn, sd: &SchemaDef) -> Result<RaResponse, RaError> {
     let mut idx = to_index_scanner(filter, rd, sd, db)?;
     let keys = idx.collect_all();
@@ -100,7 +105,7 @@ pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd:
                         return Ok(Box::new(tmp));
                     }
 
-                    let (ref_id, mut ref_type) = parse_ref_val(value)?;
+                    let (mut ref_type, ref_id, version_num) = parse_ref_val("", value)?;
                     if let Modifier::Custom(ref s) = modifier {
                         if let Some(rt) = ref_type {
                             // check that the given ResourceType in modifier is same as the one present in
@@ -133,7 +138,14 @@ pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd:
                     }
 
                     // do normal reference search
-                    let tmp = reference::new_reference_scanner(ref_id, ref_type_hash, itr, &sp_expr.hash, modifier);
+                    if let None = ref_id {
+                        return Err(EvalError::new(format!("missing reference ID in reference {}", value)));
+                    }
+                    let ref_id_val = Ksuid::from_base62(ref_id.unwrap());
+                    if let Err(e) = ref_id_val {
+                        return Err(EvalError::new(format!("invalid reference ID {}", ref_id.unwrap())));
+                    }
+                    let tmp = reference::new_reference_scanner(ref_id_val.unwrap(), ref_type_hash, itr, &sp_expr.hash, modifier);
                     idx_scanner = Box::new(tmp);
                 },
                 _ => {
@@ -192,7 +204,18 @@ fn parse_attribute_name(name: &str) -> (&str, Modifier, Option<&str>) {
     (at_name, modifier, chain)
 }
 
-fn parse_ref_val(ref_val: &str) -> Result<(Ksuid, Option<&str>), EvalError> {
+fn parse_ref_val<'f>(base_url: &str, mut ref_val: &'f str) -> Result<(Option<&'f str>, Option<&'f str>, Option<u32>), EvalError> {
+    let without_base = ref_val.strip_prefix(base_url);
+    if let None = without_base {
+        let starts_with_http = HTTP_RE.is_match(ref_val);
+        if starts_with_http {
+            return Err(EvalError::from_str("searching for canonical references is not supported"))
+        }
+    }
+    else {
+        ref_val = without_base.unwrap();
+    }
+
     let mut parts = ref_val.splitn(2, "/");
     let first = parts.next();
     let second = parts.next();
@@ -202,17 +225,34 @@ fn parse_ref_val(ref_val: &str) -> Result<(Ksuid, Option<&str>), EvalError> {
     }
     let mut first = first.unwrap();
     let mut ref_type = None;
+    let mut ref_id = None;
+    let mut version = None;
     if let Some(id) = second {
         ref_type = Some(first); // in this case, first part holds the name of the type of the resouce e.g Patient/<ksuid>
-        first = id;
+        // look for version
+        let mut parts = id.split_terminator("/");
+
+        ref_id = parts.next();
+
+        if let Some(history) = parts.next() {
+            if history == "_history" {
+                if let Some(v) = parts.next() {
+                    let v_num = v.parse::<u32>();
+                    if let Err(e) = v_num {
+                        return Err(EvalError::new(format!("invalid version number {} in reference value {}", v, ref_val)));
+                    }
+                    version = Some(v_num.unwrap());
+                }
+            }
+        }
+    }
+    else {
+        if !first.is_empty() {
+            ref_id = Some(first);
+        }
     }
 
-    let id = Ksuid::from_base62(first);
-    if let Err(e) = id {
-        return Err(EvalError::new(format!("invalid reference ID {}", first)));
-    }
-
-    Ok((id.unwrap(), ref_type))
+    Ok((ref_type, ref_id, version))
 }
 
 /// Parses the given identifier token and returns (<system>, <code>) tuple
@@ -242,7 +282,8 @@ fn parse_identifier(value: &str) -> (Option<&str>, Option<&str>) {
 
 #[cfg(test)]
 mod tests {
-    use crate::search::executor::parse_attribute_name;
+    use anyhow::Error;
+    use crate::search::executor::{parse_attribute_name, parse_ref_val};
     use crate::search::Modifier;
 
     #[test]
@@ -258,5 +299,29 @@ mod tests {
             assert_eq!(expected_mod, actual_mod);
             assert_eq!(expected_path, actual_path);
         }
+    }
+
+    #[test]
+    fn test_parse_reference_value() -> Result<(), Error>{
+        let base_url = "http://ra.org/fhir/";
+        let mut candidates = Vec::new();
+        candidates.push(("Observation/123/_history/234234", Some("Observation"), Some("123"), Some(234234)));
+        let rv = format!("{}Observation/123/_history/234234", base_url);
+        candidates.push((rv.as_str(), Some("Observation"), Some("123"), Some(234234)));
+        candidates.push(("Observation/123", Some("Observation"), Some("123"), None));
+        candidates.push(("Observation", None, Some("Observation"), None));
+        candidates.push(("", None, None, None));
+
+        for (ref_value, expected_ref_type, expected_ref_id, expected_version) in candidates {
+            println!("{}", ref_value);
+            let (actual_ref_type, actual_ref_id, actual_version) = parse_ref_val(base_url, ref_value)?;
+            assert_eq!(expected_ref_type, actual_ref_type);
+            assert_eq!(expected_ref_id, actual_ref_id);
+            assert_eq!(expected_version, actual_version);
+        }
+
+        let r = parse_ref_val(base_url, "http://hl7.org/fhir/ValueSet/example|3.0");
+        assert!(r.is_err());
+        Ok(())
     }
 }
