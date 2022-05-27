@@ -175,13 +175,24 @@ impl SchemaDef {
     }
 
     #[inline]
-    pub fn get_res_def_by_name(&self, name: &str) -> Result<&ResourceDef, RaError>{
+    pub fn get_res_def_by_name(&self, name: &str) -> Result<&ResourceDef, RaError> {
         let rd = self.resources.get(name);
         if let None = rd {
             return Err(RaError::NotFound(format!("unknown resourceType {}", name)));
         }
 
         Ok(rd.unwrap())
+    }
+
+    /// FIXME inefficient lookup. The fix requires adding lifetime annotation to SchemaDef
+    #[inline]
+    pub fn get_res_def_by_hash(&self, hash: &[u8]) -> Result<&ResourceDef, RaError> {
+        for (_, v) in &self.resources {
+            if v.hash == hash {
+                return Ok(v);
+            }
+        }
+        Err(RaError::NotFound(format!("unknown resourceType {:?}", hash)))
     }
 }
 
