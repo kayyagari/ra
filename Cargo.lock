@@ -1725,6 +1725,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "unicase",
+ "url",
  "uuid",
  "version_check",
  "zip",
