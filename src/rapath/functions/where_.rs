@@ -123,7 +123,7 @@ mod tests {
         let result = &*result.borrow();
         let result = match result {
             SystemType::Collection(c) => c,
-            st => panic!(format!("expected a collection, but found {}", st.get_type()))
+            st => panic!("{}", format!("expected a collection, but found {}", st.get_type()))
         };
         assert_eq!(2, result.len());
         println!("{:?}", result);

@@ -940,7 +940,7 @@ mod tests {
                 assert_eq!(expected, actual);
             }
             else {
-                assert!(false, format!("unexpected token received {}", r.0));
+                assert!(false, "{}", format!("unexpected token received {}", r.0));
             }
         }
 
@@ -972,7 +972,7 @@ mod tests {
                 assert_eq!(expected.format(TIME_FORMAT).to_string(), actual.format(TIME_FORMAT));
             }
             else {
-                assert!(false, format!("unexpected token received {}", r.0));
+                assert!(false, "{}", format!("unexpected token received {}", r.0));
             }
         }
 
@@ -1034,7 +1034,7 @@ mod tests {
                 assert_eq!(expected.format(DATETIME_FORMAT).to_string(), actual.format(DATETIME_FORMAT));
             }
             else {
-                assert!(false, format!("unexpected token received {}", r.0));
+                assert!(false, "{}", format!("unexpected token received {}", r.0));
             }
         }
 
@@ -1063,7 +1063,7 @@ mod tests {
                 assert_eq!(expected_code, actual_code.as_str());
             }
             else {
-                assert!(false, format!("unexpected token received {}", r.0));
+                assert!(false, "{}", format!("unexpected token received {}", r.0));
             }
         }
 
@@ -1092,7 +1092,7 @@ mod tests {
                 assert!(r.as_bool().unwrap());
             }
             else {
-                assert!(false, format!("unexpected token received {}", r.0));
+                assert!(false, "{}", format!("unexpected token received {}", r.0));
             }
         }
 
@@ -1116,7 +1116,7 @@ mod tests {
                 assert!(r.as_bool().unwrap());
             }
             else {
-                assert!(false, format!("unexpected token received {}", r.0));
+                assert!(false, "{}", format!("unexpected token received {}", r.0));
             }
         }
 
