@@ -4,18 +4,18 @@ use crate::ResourceDef;
 use crate::search::index_scanners::{IndexScanner, SelectedResourceKey};
 
 pub struct NotIndexScanner<'f> {
-    child: Box<dyn IndexScanner + 'f>,
+    child: Box<dyn IndexScanner<'f> + 'f>,
     db : &'f Barn,
     rd: &'f ResourceDef
 }
 
 impl<'f> NotIndexScanner<'f> {
-    pub fn new(child: Box<dyn IndexScanner + 'f>, rd: &'f ResourceDef, db : &'f Barn) -> Self {
+    pub fn new(child: Box<dyn IndexScanner<'f> + 'f>, rd: &'f ResourceDef, db : &'f Barn) -> Self {
         NotIndexScanner{child, rd, db}
     }
 }
 
-impl IndexScanner for NotIndexScanner<'_> {
+impl<'f> IndexScanner<'f> for NotIndexScanner<'f> {
     fn next(&mut self) -> SelectedResourceKey {
         todo!()
     }

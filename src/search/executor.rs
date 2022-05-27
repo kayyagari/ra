@@ -18,6 +18,7 @@ use crate::rapath::scanner::scan_tokens;
 use crate::search::ComparisonOperator;
 use crate::search::index_scanners::and_or::AndOrIndexScanner;
 use crate::search::index_scanners::not::NotIndexScanner;
+use crate::search::index_scanners::reference::{ChainedParam, ReferenceChainIndexScanner};
 use crate::search::index_scanners::string::StringIndexScanner;
 
 lazy_static! {
@@ -48,112 +49,11 @@ pub fn execute_search_query(filter: &Filter, sq: &SearchQuery, rd: &ResourceDef,
     Ok(RaResponse::SearchResult(ss))
 }
 
-pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd: &'f SchemaDef, db: &'d Barn) -> Result<Box<dyn IndexScanner + 'f>, EvalError> {
+pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd: &'f SchemaDef, db: &'d Barn) -> Result<Box<dyn IndexScanner<'f> + 'f>, EvalError> {
     match filter {
         Filter::SimpleFilter {identifier, value,  operator} => {
             let (name, modifier, path) = parse_attribute_name(identifier);
-            let spd_and_expr = sd.get_search_param_expr_for_res(name, &rd.name);
-            if let None = spd_and_expr {
-                return Err(EvalError::new(format!("there is no search parameter defined with code {} on {}", identifier, rd.name)));
-            }
-            let (spd, sp_expr) = spd_and_expr.unwrap();
-
-            if let None = sp_expr {
-                return Err(EvalError::new(format!("cannot search on a non-indexed field, there is no FHIRPATH expression for the search parameter defined with code {} on {}", identifier, rd.name)));
-            }
-
-            let sp_expr = sp_expr.unwrap();
-            let idx_scanner: Box<IndexScanner>;
-            match spd.param_type {
-                SearchParamType::String => {
-                    let itr = db.new_index_iter(&sp_expr.hash);
-                    let tmp = StringIndexScanner::new(value, itr, operator, &sp_expr.hash, modifier);
-                    idx_scanner = Box::new(tmp);
-                },
-                SearchParamType::Reference => {
-                    let itr = db.new_index_iter(&sp_expr.hash);
-                    if modifier == Modifier::Identifier {
-                        if let Some(path) = path {
-                            return Err(EvalError::new(format!("chaining is not supporrted when identifier is used as the modifier")));
-                        }
-                        // do identifier search
-                        let (system, code) = parse_identifier(value);
-                        let mut rpath_expr = String::with_capacity(100);
-                        if let Some(system) = system {
-                            rpath_expr.push_str(format!("identifier.where(system = '{}'", system).as_str());
-                            if let Some(code) = code {
-                                rpath_expr.push_str(format!(" and value = '{}')", code).as_str());
-                            }
-                            else {
-                                rpath_expr.push_str(")");
-                            }
-                        }
-                        else if let Some(code) = code {
-                            rpath_expr.push_str(format!("identifier.where(value = '{}')", code).as_str());
-                        }
-
-                        debug!("using rapath expression {}", &rpath_expr);
-                        let tokens = scan_tokens(&rpath_expr);
-                        if let Err(e) = tokens {
-                            return Err(EvalError::new(format!("failed to tokenize the FHIRPath expression: {}", e)));
-                        }
-                        let rpath_expr = parse(tokens.unwrap());
-                        if let Err(e) = rpath_expr {
-                            return Err(EvalError::new(format!("failed to parse the FHIRPath expression: {}", e)));
-                        }
-                        let tmp = reference::new_reference_id_scanner(rpath_expr.unwrap(), db, &sp_expr.hash);
-                        return Ok(Box::new(tmp));
-                    }
-
-                    let (mut ref_type, ref_id, version_num) = parse_ref_val("", value)?;
-                    if let Modifier::Custom(ref s) = modifier {
-                        if let Some(rt) = ref_type {
-                            // check that the given ResourceType in modifier is same as the one present in
-                            // the value e.g subject:Patient = Patient/1
-                            // if not, throw an error
-                            if rt != s {
-                                return Err(EvalError::new(format!("mismatched resourceType names in modifier({}) and reference({})", s, rt)));
-                            }
-                        }
-                        else {
-                            let rd = sd.get_res_def_by_name(s);
-                            if let Err(e) = rd {
-                                return Err(EvalError::new(format!("unknown resourceType {}", s)));
-                            }
-                            ref_type = Some(&rd.unwrap().name);
-                        }
-                    }
-
-                    let mut ref_type_hash = None;
-                    if let Some(rt) = ref_type {
-                        let rd = sd.get_res_def_by_name(rt);
-                        if let Err(e) = rd {
-                            return Err(EvalError::new(format!("unknown resourceType {}", rt)));
-                        }
-                        ref_type_hash = Some(rd.unwrap().hash);
-                    }
-
-                    if let Some(path) = path {
-                        // do chained search
-                    }
-
-                    // do normal reference search
-                    if let None = ref_id {
-                        return Err(EvalError::new(format!("missing reference ID in reference {}", value)));
-                    }
-                    let ref_id_val = Ksuid::from_base62(ref_id.unwrap());
-                    if let Err(e) = ref_id_val {
-                        return Err(EvalError::new(format!("invalid reference ID {}", ref_id.unwrap())));
-                    }
-                    let tmp = reference::new_reference_scanner(ref_id_val.unwrap(), ref_type_hash, itr, &sp_expr.hash, modifier);
-                    idx_scanner = Box::new(tmp);
-                },
-                _ => {
-                    return Err(EvalError::new(format!("unsupported search parameter type {:?}", spd.param_type)));
-                }
-            }
-
-            return Ok(idx_scanner);
+            return create_index_scanner(name, value, operator, modifier, path, rd, sd, db);
         },
         Filter::AndFilter {children} => {
             let mut scanners = Vec::with_capacity(children.len());
@@ -185,6 +85,114 @@ pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd:
     }
 
     Err(EvalError::new(format!("unsupported filter type {:?}", filter.get_type())))
+}
+
+pub fn create_index_scanner<'f>(name: &'f str, value: &'f str, operator: &'f ComparisonOperator, modifier: Modifier<'f>, path: Option<&'f str>, rd: &'f ResourceDef, sd: &'f SchemaDef, db: &'f Barn) -> Result<Box<dyn IndexScanner<'f> + 'f>, EvalError> {
+    let spd_and_expr = sd.get_search_param_expr_for_res(name, &rd.name);
+    if let None = spd_and_expr {
+        return Err(EvalError::new(format!("there is no search parameter defined with code {} on {}", name, rd.name)));
+    }
+    let (spd, sp_expr) = spd_and_expr.unwrap();
+
+    if let None = sp_expr {
+        return Err(EvalError::new(format!("cannot search on a non-indexed field, there is no FHIRPath expression for the search parameter defined with code {} on {}", name, rd.name)));
+    }
+
+    let sp_expr = sp_expr.unwrap();
+    let idx_scanner: Box<dyn IndexScanner>;
+    match spd.param_type {
+        SearchParamType::String => {
+            let itr = db.new_index_iter(&sp_expr.hash);
+            let tmp = StringIndexScanner::new(value, itr, operator, &sp_expr.hash, modifier);
+            idx_scanner = Box::new(tmp);
+        },
+        SearchParamType::Reference => {
+            let itr = db.new_index_iter(&sp_expr.hash);
+            if modifier == Modifier::Identifier {
+                if let Some(path) = path {
+                    return Err(EvalError::new(format!("chaining is not supporrted when identifier is used as the modifier")));
+                }
+                // do identifier search
+                let (system, code) = parse_identifier(value);
+                let mut rpath_expr = String::with_capacity(100);
+                if let Some(system) = system {
+                    rpath_expr.push_str(format!("identifier.where(system = '{}'", system).as_str());
+                    if let Some(code) = code {
+                        rpath_expr.push_str(format!(" and value = '{}')", code).as_str());
+                    }
+                    else {
+                        rpath_expr.push_str(")");
+                    }
+                }
+                else if let Some(code) = code {
+                    rpath_expr.push_str(format!("identifier.where(value = '{}')", code).as_str());
+                }
+
+                debug!("using rapath expression {}", &rpath_expr);
+                let tokens = scan_tokens(&rpath_expr);
+                if let Err(e) = tokens {
+                    return Err(EvalError::new(format!("failed to tokenize the FHIRPath expression: {}", e)));
+                }
+                let rpath_expr = parse(tokens.unwrap());
+                if let Err(e) = rpath_expr {
+                    return Err(EvalError::new(format!("failed to parse the FHIRPath expression: {}", e)));
+                }
+                let tmp = reference::new_reference_id_scanner(rpath_expr.unwrap(), db, &sp_expr.hash);
+                return Ok(Box::new(tmp));
+            }
+
+            let (mut ref_type, ref_id, version_num) = parse_ref_val("", value)?;
+            if let Modifier::Custom(s) = modifier {
+                if let Some(rt) = ref_type {
+                    // check that the given ResourceType in modifier is same as the one present in
+                    // the value e.g subject:Patient = Patient/1
+                    // if not, throw an error
+                    if rt != s {
+                        return Err(EvalError::new(format!("mismatched resourceType names in modifier({}) and reference({})", s, rt)));
+                    }
+                }
+                else {
+                    let rd = sd.get_res_def_by_name(s);
+                    if let Err(e) = rd {
+                        return Err(EvalError::new(format!("unknown resourceType {}", s)));
+                    }
+                    ref_type = Some(&rd.unwrap().name);
+                }
+            }
+
+            let mut ref_type_hash = None;
+            if let Some(rt) = ref_type {
+                let rd = sd.get_res_def_by_name(rt);
+                if let Err(e) = rd {
+                    return Err(EvalError::new(format!("unknown resourceType {}", rt)));
+                }
+                ref_type_hash = Some(rd.unwrap().hash);
+            }
+
+            if let Some(path) = path {
+                // do chained search
+                let chain = parse_chain(path, value, operator);
+                let tmp = reference::new_reference_chain_scanner(chain, ref_type_hash, db, sd, &sp_expr.hash);
+                return Ok(Box::new(tmp));
+            }
+
+            // do normal reference search
+            if let None = ref_id {
+                return Err(EvalError::new(format!("missing reference ID in reference {}", value)));
+            }
+            let ref_id_val = Ksuid::from_base62(ref_id.unwrap());
+            if let Err(e) = ref_id_val {
+                return Err(EvalError::new(format!("invalid reference ID {}", ref_id.unwrap())));
+            }
+            let tmp = reference::new_reference_scanner(ref_id_val.unwrap(), ref_type_hash, itr, &sp_expr.hash, modifier);
+            idx_scanner = Box::new(tmp);
+        },
+        _ => {
+            return Err(EvalError::new(format!("unsupported search parameter type {:?}", spd.param_type)));
+        }
+    }
+
+    return Ok(idx_scanner);
 }
 
 fn parse_attribute_name(name: &str) -> (&str, Modifier, Option<&str>) {
@@ -255,6 +263,37 @@ fn parse_ref_val<'f>(base_url: &str, mut ref_val: &'f str) -> Result<(Option<&'f
     Ok((ref_type, ref_id, version))
 }
 
+fn parse_chain<'f>(at_path: &'f str, value: &'f str, operator: &'f ComparisonOperator) -> ChainedParam<'f> {
+    let mut parts = at_path.split(".").peekable();
+    let mut root: Option<ChainedParam> = None;
+    loop {
+        match parts.next() {
+            Some(s) => {
+                let mut name_mod = s.splitn(2, ":");
+                let name = name_mod.next().unwrap();
+                let mut modifier = Modifier::None;
+                if let Some(m) = name_mod.next() {
+                    modifier = Modifier::from(m);
+                }
+                let mut opt_val = None;
+                if let None = parts.peek() { // last attribute in the chain
+                    opt_val = Some(value);
+                }
+                if let None = root {
+                    root = Some(ChainedParam::new(name, modifier, opt_val, operator));
+                }
+                else {
+                    let mut ch = ChainedParam::new(name, modifier, opt_val, operator);
+                    root.as_mut().unwrap().add_to_tail(ch);
+                }
+            },
+            None => break
+        }
+    }
+
+    root.unwrap()
+}
+
 /// Parses the given identifier token and returns (<system>, <code>) tuple
 fn parse_identifier(value: &str) -> (Option<&str>, Option<&str>) {
     let separator = value.find("|");
@@ -289,7 +328,7 @@ mod tests {
     #[test]
     fn test_parse_attribute_name() {
         let mut candidates = Vec::new();
-        candidates.push(("subject:Patient.name", ("subject", Modifier::Custom("Patient".to_string()), Some("name"))));
+        candidates.push(("subject:Patient.name", ("subject", Modifier::Custom("Patient"), Some("name"))));
         candidates.push(("general-practitioner.name", ("general-practitioner", Modifier::None, Some("name"))));
         candidates.push(("name:exact", ("name", Modifier::Exact, None)));
         candidates.push(("name", ("name", Modifier::None, None)));

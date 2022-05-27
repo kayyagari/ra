@@ -100,6 +100,11 @@ pub fn read_bundle() -> Value {
     serde_json::from_reader(f).expect("deserialize the bundle-example JSON")
 }
 
+pub fn read_chained_search_bundle() -> Value {
+    let f = File::open("test_data/resources/chained-search-bundle.json").expect("file chained-search-bundle.json not found");
+    serde_json::from_reader(f).expect("deserialize the chained-search-bundle.json JSON")
+}
+
 // named after the file taken from FHIR examples from hl7.org
 pub fn read_patient_example() -> Value {
     let f = File::open("test_data/resources/patient-example.json").expect("file patient-example.json not found");

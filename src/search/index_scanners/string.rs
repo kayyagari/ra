@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use log::warn;
 use rocket::form::validate::Contains;
 use rocksdb::DBIterator;
+use crate::errors::EvalError;
 use crate::search::index_scanners::{IndexScanner, SelectedResourceKey};
 use crate::search::{ComparisonOperator, Modifier};
 use crate::search::ComparisonOperator::*;
@@ -12,12 +13,12 @@ pub struct StringIndexScanner<'f, 'd: 'f> {
     index_prefix: &'f [u8],
     op: &'f ComparisonOperator,
     eof: bool,
-    modifier: Modifier,
+    modifier: Modifier<'f>,
     values: Vec<Vec<u8>>
 }
 
 impl<'f, 'd: 'f> StringIndexScanner<'f, 'd> {
-    pub fn new(input: &'f str, itr: DBIterator<'d>, mut op: &'f ComparisonOperator, index_prefix: &'f [u8], modifier: Modifier) -> Self {
+    pub fn new(input: &'f str, itr: DBIterator<'d>, mut op: &'f ComparisonOperator, index_prefix: &'f [u8], modifier: Modifier<'f>) -> Self {
         // conversion to Vec<u8> is necessary to keep the parser schema free
         // and support the ":exact" modifier
         // note: a UTF-8 string will NOT always produce byte-arrays of same lengths for upper and lower cases
@@ -44,7 +45,7 @@ impl<'f, 'd: 'f> StringIndexScanner<'f, 'd> {
     }
 }
 
-impl<'f, 'd: 'f> IndexScanner for StringIndexScanner<'f, 'd> {
+impl<'f, 'd: 'f> IndexScanner<'f> for StringIndexScanner<'f, 'd> {
     fn next(&mut self) -> SelectedResourceKey {
         let mut res_key = None;
 

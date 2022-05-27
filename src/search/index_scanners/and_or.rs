@@ -4,20 +4,20 @@ use crate::search::index_scanners::{IndexScanner, SelectedResourceKey};
 
 pub struct AndOrIndexScanner<'f> {
     and: bool,
-    children: Vec<Box<dyn IndexScanner + 'f>>
+    children: Vec<Box<dyn IndexScanner<'f> + 'f>>
 }
 
 impl<'f> AndOrIndexScanner<'f> {
-    pub fn new_and(children: Vec<Box<dyn IndexScanner + 'f>>) -> Self {
+    pub fn new_and(children: Vec<Box<dyn IndexScanner<'f> + 'f>>) -> Self {
         AndOrIndexScanner{and: true, children}
     }
 
-    pub fn new_or(children: Vec<Box<dyn IndexScanner + 'f>>) -> Self {
+    pub fn new_or(children: Vec<Box<dyn IndexScanner<'f> + 'f>>) -> Self {
         AndOrIndexScanner{and: false, children}
     }
 }
 
-impl<'f> IndexScanner for AndOrIndexScanner<'f> {
+impl<'f> IndexScanner<'f> for AndOrIndexScanner<'f> {
     fn next(&mut self) -> SelectedResourceKey {
         todo!()
     }

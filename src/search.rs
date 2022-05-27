@@ -17,7 +17,7 @@ pub struct SearchExpr {
     attribute: &'static PropertyDef,
     op: ComparisonOperator,
     val: DataType,
-    modifier: Modifier
+    //modifier: Modifier<'r>
 }
 
 #[derive(Debug)]
@@ -72,12 +72,12 @@ impl SearchParamType {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum Modifier {
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum Modifier<'f> {
     Text, Not, Above, Below,
     In, NotIn, OfType, Missing,
     Exact, Contains, Identifier,
-    Custom(String), // e.g :patient used to define the type of reference (subject:patient=<id>)
+    Custom(&'f str), // e.g :patient used to define the type of reference (subject:patient=<id>)
     None
 }
 
@@ -88,8 +88,8 @@ pub enum SearchParamPrefix {
     Unknown
 }
 
-impl From<&str> for Modifier {
-    fn from(name: &str) -> Self {
+impl<'f> From<&'f str> for Modifier<'f> {
+    fn from(name: &'f str) -> Self {
         match name {
             "text" => Modifier::Text,
             "not" => Modifier::Not,
@@ -102,7 +102,7 @@ impl From<&str> for Modifier {
             "exact" => Modifier::Exact,
             "contains" => Modifier::Contains,
             "identifier" => Modifier::Identifier,
-            _ => Modifier::Custom(name.to_string())
+            _ => Modifier::Custom(name)
         }
     }
 }
@@ -215,7 +215,7 @@ pub enum Filter<'r> {
     },
     ReferenceFilter {
         identifier: &'r str,
-        modifier: Modifier,
+        modifier: Modifier<'r>,
         value: &'r str
     },
     ConditionalFilter {
