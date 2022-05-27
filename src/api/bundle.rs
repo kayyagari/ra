@@ -133,7 +133,7 @@ impl RequestBundle {
             let resource_val = item.get_mut("resource").unwrap();
 
             if btype == BundleType::Transaction {
-                RequestBundle::replace_refs(resource_val, &ref_links);
+                RequestBundle::replace_refs(resource_val, &ref_links, "");
             }
 
             let ra_id = resource_val.get("id");
@@ -170,24 +170,47 @@ impl RequestBundle {
             let req_method = item.pointer("/request/method").unwrap().as_str().unwrap();
             let req_method = Method::from(req_method)?;
             let old_url = item.get("fullUrl").unwrap().as_str().unwrap().to_owned();
-            let resource = item.get_mut("resource").unwrap();
+            let resource = item.get_mut("resource");
+            if let None = resource {
+                return Err(RaError::bad_req(format!("missing resource in the entry with fullUrl {}", &old_url)));
+            }
+            let resource = resource.unwrap();
+            let res_name = resource.get("resourceType").unwrap().as_str().unwrap();
             match req_method {
                 Method::Post | Method::Put | Method::Patch => {
                     let new_id = Ksuid::generate().to_base62();
                     let res_type = resource.get("resourceType").unwrap().as_str();
                     if res_type.is_none() {
-                        return Err(RaError::bad_req(format!("missing resourceType in the entry with id {}", &old_url)));
+                        return Err(RaError::bad_req(format!("missing resourceType in the entry with fullUrl {}", &old_url)));
                     }
 
                     let res_type = res_type.unwrap();
-                    // only URN is supported
-                    if !old_url.starts_with("urn:uuid:") {
-                        return Err(RaError::bad_req(format!("only fullUrl of type urn:uuid: is allowed, offending entry with id {}", &old_url)));
+                    let mut old_id= None;
+                    if old_url.starts_with("urn:uuid:") {
+                        old_id = Some(old_url.split_at(9).1.to_owned());
+                    }
+                    else {
+                        let url_val = url::Url::parse(&old_url);
+                        if let Err(e) = url_val {
+                            return Err(RaError::bad_req(format!("invalid URL in fullUrl {}", &old_url)));
+                        }
+                        let url_val = url_val.unwrap();
+                        let delim = format!("/{}/", res_name);
+                        let url_path = url_val.path();
+                        let mut parts = url_path.splitn(2, delim.as_str());
+                        if let Some(_) = parts.next() {
+                            if let Some(id) = parts.next() {
+                                old_id = Some(format!("{}/{}", res_name, id));
+                            }
+                        }
                     }
 
-                    let old_id = old_url.split_at(9).1.to_owned();
+                    if let None = old_id {
+                        return Err(RaError::bad_req(format!("couldn't extract ID from the fullUrl {}", &old_url)));
+                    }
+
                     let new_url = format!("{}/{}", res_type, &new_id);
-                    ref_links.push((old_url, old_id, new_url, new_id.clone()));
+                    ref_links.push((old_url, old_id.unwrap(), new_url, new_id.clone()));
                     resource.as_object_mut().unwrap().insert(String::from("id"), Value::String(new_id));
                 },
                 _ => {}
@@ -197,28 +220,30 @@ impl RequestBundle {
         Ok(ref_links)
     }
 
-    pub fn replace_refs(v: &mut Value, refs: &Vec<(String, String, String, String)>) {
+    pub fn replace_refs(v: &mut Value, refs: &Vec<(String, String, String, String)>, key: &str) {
         match v {
             Value::String(s) => {
-                for (old_url, old_id, new_url, new_id) in refs {
-                    if s.contains(old_id) {
-                        let mut tmp = s.replace(old_url, new_url);
-                        if tmp.contains(old_id) {
-                            tmp = tmp.replace(old_id, new_id);
+                if key == "div" || key == "reference" {
+                    for (old_url, old_id, new_url, new_id) in refs {
+                        if s.contains(old_id) {
+                            let mut tmp = s.replace(old_url, new_url);
+                            if tmp.contains(old_id) {
+                                tmp = tmp.replace(old_id, new_url);
+                            }
+                            s.clear();
+                            s.push_str(&tmp);
                         }
-                        s.clear();
-                        s.push_str(&tmp);
                     }
                 }
             },
             Value::Object(m) => {
-                for (_, o) in m {
-                    RequestBundle::replace_refs(o, refs);
+                for (k, o) in m {
+                    RequestBundle::replace_refs(o, refs, k);
                 }
             },
             Value::Array(a) => {
                 for i in a {
-                    RequestBundle::replace_refs(i, refs);
+                    RequestBundle::replace_refs(i, refs, key);
                 }
             }
             _ => {}
@@ -306,12 +331,17 @@ mod tests {
 
     #[test]
     fn test_reference_resolution() -> Result<(), anyhow::Error> {
-        let f = File::open("test_data/resources/bundle-example.json").unwrap();
-        let val: Value = serde_json::from_reader(f).unwrap();
-        let bundle = RequestBundle::from(val)?;
-        assert_eq!(BundleType::Transaction, bundle.btype);
-        let s = serde_json::to_string(&bundle.entries).unwrap();
-        println!("{}", s);
+        let mut candidates = Vec::new();
+        candidates.push("test_data/resources/bundle-example.json");
+        candidates.push("test_data/resources/chained-search-bundle.json");
+        for c in candidates {
+            let f = File::open(c).unwrap();
+            let val: Value = serde_json::from_reader(f).unwrap();
+            let bundle = RequestBundle::from(val)?;
+            assert_eq!(BundleType::Transaction, bundle.btype);
+            let s = serde_json::to_string(&bundle.entries).unwrap();
+            println!("{}", s);
+        }
         Ok(())
     }
 
