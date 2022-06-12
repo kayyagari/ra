@@ -198,7 +198,7 @@ impl<'f> IndexScanner<'f> for ReferenceIdIndexScanner<'f> {
             }
             let pos = row.0.len() - 24;
             let this_pk = &row.0[pos..];
-            let ref_to_res_pk = res_pks.get(this_pk);
+            let ref_to_res_pk = res_pks.remove(this_pk);
             if let Some(ref_to_res_pk) = ref_to_res_pk {
                 let ref_pk = &row.0[5..pos];
                 let eval_result = self.eval_row(ref_pk);
@@ -212,8 +212,7 @@ impl<'f> IndexScanner<'f> for ReferenceIdIndexScanner<'f> {
                         keys.insert(this_res_type_sized, HashMap::new());
                     }
                     let this_pk_sized = this_pk.try_into().unwrap();
-                    keys.get_mut(this_res_type).unwrap().insert(this_pk_sized, *ref_to_res_pk);
-                    res_pks.remove(this_pk);
+                    keys.get_mut(this_res_type).unwrap().insert(this_pk_sized, ref_to_res_pk);
                 }
             }
         }
@@ -519,6 +518,7 @@ mod tests {
            patient = "Specimen.subject.where(resolve() is Patient)" --references--> Patient
         */
         candidates.push((format!("result.specimen.patient:identifier eq \"{}\"", "444222222"), 1));
+        candidates.push((format!("result.subject.name eq \"{}\"", "Everywoman"), 1));
 
         for (input, expected) in candidates {
             println!("{}", input);

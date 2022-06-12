@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use log::warn;
 use rocket::form::validate::Contains;
 use rocksdb::DBIterator;
+use crate::barn::Barn;
 use crate::errors::EvalError;
+use crate::res_schema::SchemaDef;
 use crate::search::index_scanners::{IndexScanner, SelectedResourceKey};
 use crate::search::{ComparisonOperator, Modifier};
 use crate::search::ComparisonOperator::*;
@@ -121,6 +123,46 @@ impl<'f, 'd: 'f> IndexScanner<'f> for StringIndexScanner<'f, 'd> {
         }
 
         res_keys
+    }
+
+    fn chained_search(&mut self, res_pks: &mut HashMap<[u8; 24], [u8; 24]>, sd: &SchemaDef, db: &'f Barn) -> Result<HashMap<[u8; 4], HashMap<[u8; 24], [u8; 24]>>, EvalError> {
+        let mut keys: HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>> = HashMap::new();
+        loop {
+            let row = self.itr.next();
+            if let None = row {
+                break;
+            }
+            let row = row.unwrap();
+            let row_prefix = &row.0[..4];
+            if row_prefix != self.index_prefix {
+                break;
+            }
+            if res_pks.is_empty() {
+                break;
+            }
+            let pos = row.0.len() - 24;
+            let this_pk = &row.0[pos..];
+            let ref_to_res_pk = res_pks.remove(this_pk);
+            if let Some(ref_to_res_pk) = ref_to_res_pk {
+                let hasVal = row.0[4] == 1;
+                let mut norm_val_in_key = None;
+                if hasVal {
+                    norm_val_in_key = Some(&row.0[5..pos]);
+                }
+                let r = self.cmp_value( norm_val_in_key, row.1.as_ref());
+                if r {
+                    let this_res_type= &row.0[pos..pos+4];
+                    if !keys.contains_key(this_res_type) {
+                        let this_res_type_sized = this_res_type.try_into().unwrap();
+                        keys.insert(this_res_type_sized, HashMap::new());
+                    }
+                    let this_pk_sized = this_pk.try_into().unwrap();
+                    keys.get_mut(this_res_type).unwrap().insert(this_pk_sized, ref_to_res_pk);
+                }
+            }
+        }
+
+        Ok(keys)
     }
 }
 
