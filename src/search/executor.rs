@@ -1,5 +1,7 @@
+use std::collections::VecDeque;
 use std::io::Cursor;
 use std::process::id;
+use std::rc::Rc;
 use bson::Document;
 use ksuid::Ksuid;
 use lazy_static::lazy_static;
@@ -8,7 +10,7 @@ use regex::Regex;
 use crate::api::base::{OperationOutcome, RaResponse, SearchQuery};
 use crate::api::bundle::{SearchEntry, SearchSet};
 use crate::barn::Barn;
-use crate::res_schema::SchemaDef;
+use crate::res_schema::{SchemaDef, SearchParamDef, SearchParamExpr};
 use crate::ResourceDef;
 use crate::search::{Filter, Modifier, SearchParamType};
 use crate::search::index_scanners::{IndexScanner, reference};
@@ -87,7 +89,7 @@ pub fn to_index_scanner<'f, 'd: 'f>(filter: &'f Filter, rd: &'f ResourceDef, sd:
     Err(EvalError::new(format!("unsupported filter type {:?}", filter.get_type())))
 }
 
-pub fn create_index_scanner<'f>(name: &'f str, value: &'f str, operator: &'f ComparisonOperator, modifier: Modifier<'f>, path: Option<&'f str>, rd: &'f ResourceDef, sd: &'f SchemaDef, db: &'f Barn) -> Result<Box<dyn IndexScanner<'f> + 'f>, EvalError> {
+pub fn find_search_param_expr<'f>(name: &'f str, rd: &'f ResourceDef, sd: &'f SchemaDef) -> Result<(&'f SearchParamDef, &'f SearchParamExpr), EvalError> {
     let spd_and_expr = sd.get_search_param_expr_for_res(name, &rd.name);
     if let None = spd_and_expr {
         return Err(EvalError::new(format!("there is no search parameter defined with code {} on {}", name, rd.name)));
@@ -98,7 +100,11 @@ pub fn create_index_scanner<'f>(name: &'f str, value: &'f str, operator: &'f Com
         return Err(EvalError::new(format!("cannot search on a non-indexed field, there is no FHIRPath expression for the search parameter defined with code {} on {}", name, rd.name)));
     }
 
-    let sp_expr = sp_expr.unwrap();
+    Ok((spd, sp_expr.unwrap()))
+}
+
+pub fn create_index_scanner<'f>(name: &'f str, value: &'f str, operator: &'f ComparisonOperator, modifier: Modifier<'f>, path: Option<&'f str>, rd: &'f ResourceDef, sd: &'f SchemaDef, db: &'f Barn) -> Result<Box<dyn IndexScanner<'f> + 'f>, EvalError> {
+    let (spd, sp_expr) = find_search_param_expr(name, rd, sd)?;
     let idx_scanner: Box<dyn IndexScanner>;
     match spd.param_type {
         SearchParamType::String => {
@@ -172,7 +178,7 @@ pub fn create_index_scanner<'f>(name: &'f str, value: &'f str, operator: &'f Com
             if let Some(path) = path {
                 // do chained search
                 let chain = parse_chain(path, value, operator);
-                let tmp = reference::new_reference_chain_scanner(chain, ref_type_hash, db, sd, &sp_expr.hash);
+                let tmp = reference::new_reference_chain_scanner(Rc::new(chain), ref_type_hash, db, sd, &sp_expr.hash);
                 return Ok(Box::new(tmp));
             }
 
@@ -265,7 +271,7 @@ fn parse_ref_val<'f>(base_url: &str, mut ref_val: &'f str) -> Result<(Option<&'f
 
 fn parse_chain<'f>(at_path: &'f str, value: &'f str, operator: &'f ComparisonOperator) -> ChainedParam<'f> {
     let mut parts = at_path.split(".").peekable();
-    let mut root: Option<ChainedParam> = None;
+    let mut links = VecDeque::new();
     loop {
         match parts.next() {
             Some(s) => {
@@ -279,18 +285,28 @@ fn parse_chain<'f>(at_path: &'f str, value: &'f str, operator: &'f ComparisonOpe
                 if let None = parts.peek() { // last attribute in the chain
                     opt_val = Some(value);
                 }
-                if let None = root {
-                    root = Some(ChainedParam::new(name, modifier, opt_val, operator));
-                }
-                else {
-                    let mut ch = ChainedParam::new(name, modifier, opt_val, operator);
-                    root.as_mut().unwrap().add_to_tail(ch);
-                }
+
+                links.push_back(ChainedParam::new(name, modifier, opt_val, operator));
             },
             None => break
         }
     }
 
+    let mut root: Option<ChainedParam> = None;
+    loop {
+        match links.pop_back() {
+            Some(mut cp) => {
+                if let None = root {
+                    root = Some(cp);
+                }
+                else {
+                    cp.add_child(root.unwrap());
+                    root = Some(cp);
+                }
+            },
+            None => break
+        }
+    }
     root.unwrap()
 }
 

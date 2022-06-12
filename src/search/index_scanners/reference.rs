@@ -1,3 +1,5 @@
+use std::borrow::{Borrow, BorrowMut};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -18,7 +20,7 @@ use crate::res_schema::SchemaDef;
 use crate::search::index_scanners::{IndexScanner, SelectedResourceKey};
 use crate::search::{ComparisonOperator, Modifier};
 use crate::search::ComparisonOperator::*;
-use crate::search::executor::create_index_scanner;
+use crate::search::executor::{create_index_scanner, find_search_param_expr};
 
 pub struct ReferenceIndexScanner<'f, 'd: 'f> {
     ref_id: Ksuid,
@@ -41,7 +43,7 @@ pub struct ReferenceChainIndexScanner<'f> {
     db: &'f Barn,
     sd: &'f SchemaDef,
     index_prefix: &'f [u8],
-    chain: ChainedParam<'f>
+    chain: Rc<ChainedParam<'f>>
 }
 
 pub struct ChainedParam<'f> {
@@ -49,8 +51,7 @@ pub struct ChainedParam<'f> {
     modifier: Modifier<'f>,
     value: Option<&'f str>,
     operator: &'f ComparisonOperator,
-    cached_scanners: HashMap<[u8;4], Box<dyn IndexScanner<'f> + 'f>>,
-    child: Option<Box<ChainedParam<'f>>>
+    child: Option<Rc<ChainedParam<'f>>>
 }
 
 pub fn new_reference_scanner<'f, 'd: 'f>(ref_id: Ksuid, ref_type: Option<[u8; 4]>, itr: DBIterator<'d>, index_prefix: &'f [u8], modifier: Modifier<'f>) -> ReferenceIndexScanner<'f, 'd> {
@@ -62,7 +63,7 @@ pub fn new_reference_id_scanner<'f>(rpath_expr: Ast<'f>, db: &'f Barn, index_pre
     ReferenceIdIndexScanner { rpath_expr, itr, db, index_prefix }
 }
 
-pub fn new_reference_chain_scanner<'f>(chain: ChainedParam<'f>, ref_type: Option<[u8; 4]>, db: &'f Barn, sd: &'f SchemaDef, index_prefix: &'f [u8]) -> ReferenceChainIndexScanner<'f> {
+pub fn new_reference_chain_scanner<'f>(chain: Rc<ChainedParam<'f>>, ref_type: Option<[u8; 4]>, db: &'f Barn, sd: &'f SchemaDef, index_prefix: &'f [u8]) -> ReferenceChainIndexScanner<'f> {
     let itr = db.new_index_iter(index_prefix);
     ReferenceChainIndexScanner{itr, db, sd, index_prefix, chain, ref_type}
 }
@@ -223,46 +224,45 @@ impl<'f> IndexScanner<'f> for ReferenceIdIndexScanner<'f> {
 
 impl<'f> ChainedParam<'f> {
     pub fn new(name: &'f str, modifier: Modifier<'f>, value: Option<&'f str>, operator: &'f ComparisonOperator) -> ChainedParam<'f> {
-        let cached_scanners = HashMap::new();
-        ChainedParam{name, modifier, value, cached_scanners, child: None, operator}
+        ChainedParam{name, modifier, value, child: None, operator}
     }
 
-    pub fn add_to_tail(&mut self, child: ChainedParam<'f>) {
-        let mut tmp = self;
-        loop {
-            if let None = tmp.child {
-                tmp.child = Some(Box::new(child));
-                break;
-            }
+    pub fn add_child(&mut self, child: ChainedParam<'f>) {
+        self.child = Some(Rc::new(child));
+    }
+}
 
-            tmp = tmp.child.as_mut().unwrap();
+fn chained_search<'f>(chain: &Rc<ChainedParam<'f>>, res_pks: &mut HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>>, sd: &'f SchemaDef, db: &'f Barn) -> Result<HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>>, EvalError> {
+    let mut chain_result: HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>> = HashMap::new();
+    for (ref res_type, internal_map) in res_pks {
+        let rd = sd.get_res_def_by_hash(*res_type);
+        if let Err(e) = rd {
+            return Err(EvalError::new(format!("{:?}", e)));
         }
-    }
-
-    pub fn chained_search(&mut self, res_pks: &mut HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>>, sd: &'f SchemaDef, db: &'f Barn) -> Result<HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>>, EvalError> {
-        let mut chain_result: HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>> = HashMap::new();
-        for (ref res_type, internal_map) in res_pks {
-            if let None = self.cached_scanners.get(*res_type) {
-                let mut value = "";
-                if let Some(v) = self.value { // value exists for the last attribute in the chain
-                    value = v;
-                }
-                let rd = sd.get_res_def_by_hash(*res_type);
-                if let Err(e) = rd {
+        let rd = rd.unwrap();
+        if let Some(v) = chain.value { // value exists for the last attribute in the chain
+            let mut scanner = create_index_scanner(chain.name, v, chain.operator, chain.modifier, None, rd, sd, db)?;
+            chain_result = scanner.chained_search(internal_map, sd, db)?;
+        }
+        else {
+            let (_, sp_expr) = find_search_param_expr(chain.name, rd, sd)?;
+            let mut ref_type = None;
+            if let Modifier::Custom(rt) = chain.modifier {
+                let modifier_res_def = sd.get_res_def_by_name(rt);
+                if let Err(e) = modifier_res_def {
                     return Err(EvalError::new(format!("{:?}", e)));
                 }
-                let scanner = create_index_scanner(self.name, value, self.operator, self.modifier, None, rd.unwrap(), sd, db)?;
-                self.cached_scanners.insert(**res_type, scanner);
+                ref_type = Some(modifier_res_def.unwrap().hash);
             }
-
-            let scanner = self.cached_scanners.get_mut(*res_type).unwrap();
+            let mut scanner = new_reference_chain_scanner(Rc::clone(chain.child.as_ref().unwrap()), ref_type, db, sd, &sp_expr.hash);
             chain_result = scanner.chained_search(internal_map, sd, db)?;
-            if let Some(ch) = &mut self.child {
-                chain_result = ch.chained_search(&mut chain_result, sd, db)?;
-            }
         }
-        Ok(chain_result)
+
+        if let Some(ch) = &chain.child {
+            chain_result = chained_search(ch, &mut chain_result, sd, db)?;
+        }
     }
+    Ok(chain_result)
 }
 
 impl <'f> IndexScanner<'f> for ReferenceChainIndexScanner<'f> {
@@ -272,7 +272,7 @@ impl <'f> IndexScanner<'f> for ReferenceChainIndexScanner<'f> {
 
     fn collect_all(&mut self) -> HashMap<[u8; 24], bool> {
         let mut res_keys = HashMap::new();
-        let batch_size: u32 = 1; // TODO should be made configurable
+        let batch_size: u32 = 100_000; // TODO should be made configurable
         let mut count = 0;
         let mut batch: HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>> = HashMap::new();
         loop {
@@ -302,16 +302,17 @@ impl <'f> IndexScanner<'f> for ReferenceChainIndexScanner<'f> {
             let this_pk = &row.0[pos..];
 
             if !batch.contains_key(ref_res_type) {
+                println!("inserting resourceType {} in the batch", self.sd.get_res_name_by_hash(ref_res_type));
                 batch.insert(ref_res_type.try_into().unwrap(), HashMap::new());
             }
             let inner_map = batch.get_mut(ref_res_type).unwrap();
-            let map_key = ref_res_pk.try_into().unwrap();
-            inner_map.insert(map_key, this_pk.try_into().unwrap());
+            let ref_res_pk_sized = ref_res_pk.try_into().unwrap();
+            inner_map.insert(ref_res_pk_sized, this_pk.try_into().unwrap());
             count += 1;
 
             if count % batch_size == 0 {
-                let chain = &mut self.chain;
-                let found = chain.chained_search(&mut batch, self.sd, self.db);
+                let chain = &self.chain;
+                let found = chained_search(chain, &mut batch, self.sd, self.db);
                 if let Err(e) = found {
                     warn!("{}", e);
                     break;
@@ -325,7 +326,68 @@ impl <'f> IndexScanner<'f> for ReferenceChainIndexScanner<'f> {
             }
         }
 
+        if !batch.is_empty() {
+            let chain = &self.chain;
+            let found = chained_search(chain, &mut batch, self.sd, self.db);
+            if let Err(e) = found {
+                warn!("{}", e);
+            }
+            else {
+                for (res_type, results) in found.unwrap() {
+                    for (_, v) in results {
+                        res_keys.insert(v, true);
+                    }
+                }
+            }
+            batch.clear();
+        }
+
         res_keys
+    }
+
+    fn chained_search(&mut self, res_pks: &mut HashMap<[u8; 24], [u8; 24]>, sd: &SchemaDef, db: &'f Barn) -> Result<HashMap<[u8; 4], HashMap<[u8; 24], [u8; 24]>>, EvalError> {
+        let mut keys: HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>> = HashMap::new();
+        loop {
+            let row = self.itr.next();
+            if let None = row {
+                break;
+            }
+            let row = row.unwrap();
+            let row_prefix = &row.0[..4];
+            if row_prefix != self.index_prefix {
+                break;
+            }
+            if res_pks.is_empty() {
+                break;
+            }
+            let pos = row.0.len() - 24;
+            let hasVal = row.0[4] == 1;
+            if !hasVal {
+                continue;
+            }
+            let ref_res_type = &row.0[5..9];
+            if let Some(ref expected_ref_type) = self.ref_type {
+                if expected_ref_type != ref_res_type {
+                    println!("{} != {}", self.sd.get_res_name_by_hash(expected_ref_type), self.sd.get_res_name_by_hash(ref_res_type));
+                    continue;
+                }
+            }
+
+            let this_pk = &row.0[pos..];
+            let ref_to_res_pk = res_pks.remove(this_pk);
+            if let Some(ref_to_res_pk) = ref_to_res_pk {
+                let ref_pk = &row.0[5..pos];
+                let ref_res_type = &row.0[5..9];
+                if !keys.contains_key(ref_res_type) {
+                    let ref_res_type_sized = ref_res_type.try_into().unwrap();
+                    keys.insert(ref_res_type_sized, HashMap::new());
+                }
+                let ref_pk_sized = ref_pk.try_into().unwrap();
+                keys.get_mut(ref_res_type).unwrap().insert(ref_pk_sized, ref_to_res_pk);
+            }
+        }
+
+        Ok(keys)
     }
 }
 
@@ -438,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_chained_search() -> Result<(), Error> {
-        configure_log4rs();
+        //configure_log4rs();
         let tc = TestContainer::new();
         let api_base = tc.setup_api_base_with_example_patient();
         let bundle = read_bundle();
@@ -451,7 +513,12 @@ mod tests {
 
         let mut candidates = Vec::new();
         candidates.push((format!("result.subject:identifier eq \"{}\"", "444222222"), 1));
-        // candidates.push((format!("result.specimen.patient:identifier eq \"{}\"", "444222222"), 1));
+        /*
+           result = "DiagnosticReport.result" --references--> Observation
+           speciment = "Observation.specimen" --references--> Specimen
+           patient = "Specimen.subject.where(resolve() is Patient)" --references--> Patient
+        */
+        candidates.push((format!("result.specimen.patient:identifier eq \"{}\"", "444222222"), 1));
 
         for (input, expected) in candidates {
             println!("{}", input);

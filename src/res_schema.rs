@@ -194,6 +194,17 @@ impl SchemaDef {
         }
         Err(RaError::NotFound(format!("unknown resourceType {:?}", hash)))
     }
+
+    /// FIXME inefficient lookup. The fix requires adding lifetime annotation to SchemaDef
+    #[inline]
+    pub fn get_res_name_by_hash(&self, hash: &[u8]) -> &str {
+        for (_, v) in &self.resources {
+            if v.hash == hash {
+                return &v.name;
+            }
+        }
+        "unknown resource"
+    }
 }
 
 pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
