@@ -21,19 +21,17 @@ use ra_registry::configure_log4rs;
 
 #[rocket::main]
 async fn main() {
-    configure_log4rs();
-
     let opts = create_opts();
 
     let dir = opts.value_of("dir").unwrap();
     let path = PathBuf::from(dir);
 
-    //std::fs::remove_dir_all(&path);
     let barn = Barn::open_with_default_schema(&path).unwrap();
     let api_base = ApiBase::new(barn).unwrap();
 
     let start = opts.is_present("start");
     if start {
+        configure_log4rs();
         let mut config = Config::default();
         config.address = Ipv4Addr::new(0,0,0,0).into();
         config.port = 7090;
@@ -42,9 +40,9 @@ async fn main() {
     }
     else if opts.is_present("import") {
         let import = opts.value_of("import").unwrap();
-        debug!("importing from {}", import);
+        println!("importing from {}", import);
         if !import.ends_with(".zip") {
-            info!("unsupported archive format, only ZIP files are supported");
+            println!("unsupported archive format, only ZIP files are supported");
         }
         else {
             let archive = PathBuf::from(import);
@@ -91,13 +89,13 @@ fn load_data(p: PathBuf, gateway: &ApiBase) -> usize {
             println!("reading entry {}", entry.name());
             let val: serde_json::Result<Value> = serde_json::from_reader(entry);
             if let Err(e) = val {
-                info!("failed to parse the file {}", e.to_string());
+                println!("failed to parse the file {}", e.to_string());
                 continue;
             }
             let val = val.unwrap();
             let result = gateway.bundle(val);
             if let Err(e) = result {
-                warn!("failed to process the bundle {:?}", e);
+                println!("failed to process the bundle {:?}", e);
             }
             else {
                 count += 1;
