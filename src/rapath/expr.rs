@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::fmt::{Display, format, Formatter, Write};
 
 use chrono::{DateTime, NaiveTime, Utc};
@@ -82,6 +83,23 @@ impl<'a, 'b> Function<'a> where 'a: 'b {
                     },
                     "resolve_and_check" => {
                         resolve_and_check(ctx, base, args)
+                    },
+                    "as" => {
+                        let name = args.get(0);
+                        if let None = name {
+                            return Err(EvalError::from_str("missing argument to the as() function"));
+                        }
+                        let name = name.unwrap();
+                        let mut type_name = None;
+                        if let Ast::Path {name} = name {
+                            //println!("{}", name);
+                            type_name = Some(name);
+                        }
+
+                        if let None = type_name {
+                            return Err(EvalError::from_str("invalid argument type passed to as() function"));
+                        }
+                        cast(base, type_name.unwrap())
                     },
                     _ => {
                         Err(EvalError::new(format!("unknown function name {}", name)))

@@ -314,7 +314,21 @@ pub fn get_attribute_to_cast_to<'b>(base: Rc<SystemType<'b>>, at_name: &str, at_
                     }
                     return Ok(Rc::new(value.unwrap()));
                 },
-                _ => {}
+                et => {
+                    return Err(EvalError::new(format!("unsupported element type for casting the target value {:?}", et)));
+                }
+            }
+        },
+        SystemType::Collection(c) => {
+            if !c.is_empty() {
+                let mut tmp = Collection::new();
+                for item in c.iter() {
+                    let v = get_attribute_to_cast_to(Rc::clone(item), at_name, at_and_type_name)?;
+                    if !v.is_empty() {
+                        tmp.push(v);
+                    }
+                }
+                return Ok(Rc::new(SystemType::Collection(tmp)));
             }
         },
         _ => {}

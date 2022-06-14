@@ -13,3 +13,4 @@ pub use crate::rapath::functions::exists::exists;
 pub use crate::rapath::functions::array_index::array_index;
 pub use crate::rapath::functions::union::union;
 pub use crate::rapath::functions::resolve_and_check::resolve_and_check;
+pub use crate::rapath::functions::cast_as::cast;

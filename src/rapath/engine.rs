@@ -432,36 +432,6 @@ mod tests {
     }
 
     #[test]
-    fn test_as() {
-        let bdoc = bson::doc! {"value": {"value": 161.42333812930528,
-          "unit": "cm",
-          "system": "http://unitsofmeasure.org",
-          "code": "cm"}, "codeQuantity": {
-          "value": 41.76996932711261,
-          "unit": "kg",
-          "system": "http://unitsofmeasure.org",
-          "code": "kg"}, "name": "k"};
-        let raw = DocBuf::from_document(&bdoc);
-        let doc_el = Element::new(ElementType::EmbeddedDocument, raw.as_bytes());
-        let doc_base = Rc::new(SystemType::Element(doc_el));
-        let ctx = UnresolvableExecContext::new(doc_base);
-
-        let mut exprs = Vec::new();
-        exprs.push(("value as Quantity", true)); // attribute "value" exists
-        exprs.push(("code as Quantity", true)); // attribute "code" doesn't exist but "codeQuantity" does
-        exprs.push(("value as Quantity > 1 'cm'", true));
-        exprs.push(("value as Quantity > 1 'cm' and 0 = 0", true)); // just to check if the parser is doing it right or not
-        exprs.push(("code as Quantity < 1 'kg'", false));
-        exprs.push(("code as Quantity < 1 'kg' and 1 = 1", false)); // just to check if the parser is doing it right or not
-
-        for (input, expected) in exprs {
-            let e = parse_expression(input);
-            let result = eval(&ctx, &e, ctx.root_resource()).unwrap();
-            assert_eq!(expected, result.is_truthy());
-        }
-    }
-
-    #[test]
     fn test_xor() {
         let bdoc = bson::doc!{"k": 2, "r": 7};
         let raw = DocBuf::from_document(&bdoc);
