@@ -28,7 +28,10 @@ lazy_static = "1.4.0"
 zip = {version = "0.6.2", features=["bzip2"]}
 rocket = {version = "0.5.0-rc.1", features = ["json"]}
 uuid = {version = "0.8.2", features = ["v4"]}
-clap = "3.1.8"
+clap = { version = "3.2.7", features = ["derive"] }
+# once_cell added because the version bundled with ahash which is used by jsonschema has a conflicting version with clap
+# this dependency can be removed once jsonschema updates its dependencies in a newer release
+once_cell = "1.12.0"
 #rayon = "1.5.1"
 regex = "1.5.5"
 unicase = "2.6.0"
