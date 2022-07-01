@@ -1,9 +1,10 @@
 use std::convert::Infallible;
 use std::io::{BufWriter, Cursor, Sink};
+use std::process::exit;
 use chrono::Utc;
 use log::debug;
 
-use rocket::{Build, Config, Data, get, post, Request, Response, Rocket, routes, State};
+use rocket::{Build, Config, Data, get, post, Request, Response, Rocket, routes, State, warn};
 use rocket::data::{DataStream, FromData};
 use rocket::fairing::AdHoc;
 use rocket::form::{Form, FromForm};
@@ -277,13 +278,20 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaResponse {
     }
 }
 
-pub fn mount(api_base: ApiBase, config: Config) -> Rocket<Build> {
+pub fn mount(api_base: ApiBase, config: Config) -> Result<Rocket<Build>, anyhow::Error> {
+    let base_url = url::Url::parse(&api_base.base_url);
+    if let Err(e) = base_url {
+        let msg = format!("invalid base URL {}", &api_base.base_url);
+        warn!("{}", &msg);
+        return Err(anyhow::Error::msg(msg));
+    }
+    let base = base_url.unwrap().path().to_string();
     let mut server = rocket::build().manage(api_base).configure(config);
     server = server.attach(AdHoc::on_request("Create trace ID", |req, _| Box::pin(async move {
         log_mdc::insert("request_id", uuid::Uuid::new_v4().to_string());
     }
     )));
-    server.mount("/", routes![create, bundle, search])
+    Ok(server.mount(base, routes![create, bundle, search]))
 }
 
 fn parse_input(d: &[u8]) -> Result<Value, RaError> {

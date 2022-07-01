@@ -1,9 +1,12 @@
 use std::fs::File;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
+use std::os;
 use std::path::PathBuf;
+use std::process::exit;
+use std::str::FromStr;
 use std::time::Instant;
 use bson::spec::BinarySubtype::Uuid;
-use clap::{Arg, ArgMatches};
+use clap::{Parser, Subcommand};
 use ksuid::Ksuid;
 use log::{debug, info, warn};
 use rocket::{Config, routes};
@@ -18,68 +21,96 @@ use ra_registry::rapath::scanner::scan_tokens;
 use ra_registry::res_schema::{parse_res_def, ResourceDef, SchemaDef};
 
 use ra_registry::configure_log4rs;
+use ra_registry::errors::RaError;
 
 #[rocket::main]
 async fn main() {
-    let opts = create_opts();
+    let cli = Cli::parse();
+    match &cli.command {
+        Commands::Start{data_dir, base_url, port, tls} => {
+            configure_log4rs();
+            let burl;
+            if let Some(s) = base_url {
+                burl = s.to_string();
+            }
+            else {
+                burl = format!("http://localhost:{}/base", port);
+            }
+            let api_base = create_api_base(data_dir, burl).unwrap();
+            let mut config = Config::default();
+            config.address = IpAddr::from_str("0.0.0.0").unwrap();
+            info!("binding to the local host interface {}", &config.address);
+            config.port = *port;
+            config.cli_colors = false;
+            config.tls = None; // TODO support TLS
+            let server = rest::mount(api_base, config);
+            if let Err(e) = server {
+                exit(151);
+            }
+            server.unwrap().launch().await;
+        },
+        Commands::Import {data_dir, zip_file} => {
+            let api_base = create_api_base(data_dir, String::from("")).unwrap();
 
-    let dir = opts.value_of("dir").unwrap();
-    let path = PathBuf::from(dir);
-
-    let barn = Barn::open_with_default_schema(&path).unwrap();
-    let api_base = ApiBase::new(barn).unwrap();
-
-    let start = opts.is_present("start");
-    if start {
-        configure_log4rs();
-        let mut config = Config::default();
-        config.address = Ipv4Addr::new(0,0,0,0).into();
-        config.port = 7090;
-        config.cli_colors = false;
-        rest::mount(api_base, config).launch().await;
-    }
-    else if opts.is_present("import") {
-        let import = opts.value_of("import").unwrap();
-        println!("importing from {}", import);
-        if !import.ends_with(".zip") {
-            println!("unsupported archive format, only ZIP files are supported");
-        }
-        else {
-            let archive = PathBuf::from(import);
-
-            let start = Instant::now();
-            let count = load_data(archive, &api_base);
-            let elapsed = start.elapsed().as_millis();
-            println!("time took to insert {} records {}ms", count, elapsed);
+            if !zip_file.ends_with(".zip") {
+                println!("unsupported archive format, only ZIP files are supported");
+            }
+            else {
+                println!("importing from {:?}", zip_file);
+                let start = Instant::now();
+                let count = load_data(zip_file, &api_base);
+                let elapsed = start.elapsed().as_millis();
+                println!("time took to insert {} records {}ms", count, elapsed);
+            }
         }
     }
 }
 
-fn create_opts() -> ArgMatches {
-    let matches = clap::App::new("ra")
-        .arg(Arg::new("dir")
-            .short('d')
-            .long("dir")
-            .help("path to the data directory")
-            .takes_value(true)
-            .default_value("/tmp/testdb"))
-        .arg(Arg::new("start")
-            .short('s')
-            .long("start")
-            .help("start the server")
-            .takes_value(false)
-            .conflicts_with("import"))
-        .arg(Arg::new("import")
-            .short('i')
-            .long("import")
-            .help("path to the archive(.zip) file to be imported")
-            .takes_value(true)
-            .required(false))
-        .get_matches();
-    matches
+fn create_api_base(data_dir: &PathBuf, base_url: String) -> Result<ApiBase, RaError> {
+    let barn = Barn::open_with_default_schema(data_dir)?;
+    ApiBase::new(barn, base_url)
 }
 
-fn load_data(p: PathBuf, gateway: &ApiBase) -> usize {
+#[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
+pub struct Cli {
+    #[clap(subcommand)]
+    command: Commands
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Starts the server
+    Start {
+        /// path to the data directory
+        #[clap(short='d', long, value_parser=clap::value_parser!(PathBuf), value_name="Data Directory")]
+        data_dir: PathBuf,
+
+        /// base URL that will be accessible globally
+        #[clap(short='b', long, value_parser = validate_url)]
+        base_url: Option<String>,
+
+        /// local port number at which the server listens
+        #[clap(default_value_t = 7090, short='p', long, value_parser = clap::value_parser!(u16))]
+        port: u16,
+
+        #[clap(default_value_t = false, short='s', long)]
+        tls: bool
+    },
+
+    /// Imports data in bulk
+    Import {
+        /// path to the data directory
+        #[clap(short='d', long, value_parser=clap::value_parser!(PathBuf), value_name="Data Directory")]
+        data_dir: PathBuf,
+
+        /// path to the archive(.zip) file to be imported
+        #[clap(short='z', long, action, value_parser=clap::value_parser!(PathBuf), value_name="ZIP File")]
+        zip_file: PathBuf
+    }
+}
+
+fn load_data(p: &PathBuf, gateway: &ApiBase) -> usize {
     let mut count: usize = 0;
     let f = File::open(p.as_path()).expect("zip file is not readable");
     let mut archive = ZipArchive::new(f).expect("failed to open the zip file");
@@ -104,4 +135,18 @@ fn load_data(p: PathBuf, gateway: &ApiBase) -> usize {
     }
 
     count
+}
+
+fn validate_url(input: &str) -> Result<String, String> {
+    let r = url::Url::parse(&input);
+    if let Err(e) = r {
+        return Err(format!("{} is not a valid URL", &input));
+    }
+
+    let protocol = r.unwrap().scheme().to_lowercase();
+    if !(protocol == "http" || protocol == "https") {
+        return Err(format!("{} is not a HTTP URL", &input));
+    }
+
+    Ok(input.to_string())
 }

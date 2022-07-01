@@ -52,11 +52,11 @@ impl TestContainer {
         config.address = Ipv4Addr::new(0,0,0,0).into();
         config.port = 7090;
         config.cli_colors = false;
-        let api_base = ApiBase::new(db).unwrap();
+        let api_base = ApiBase::new(db, String::from("http://localhost:7090/")).unwrap();
         let data = read_patient_example();
         api_base.create("Patient", &data).expect("failed to insert example patient record");
         *self.initialized.borrow_mut() = true;
-        rest::mount(api_base, config)
+        rest::mount(api_base, config).unwrap()
     }
 
     pub fn setup_api_base_with_example_patient(&self) -> ApiBase {
@@ -64,7 +64,7 @@ impl TestContainer {
             panic!("container was already initialized");
         }
         let db = self.setup_db().expect("initialization of database failed");
-        let api_base = ApiBase::new(db).unwrap();
+        let api_base = ApiBase::new(db, String::from("")).unwrap();
         let data = read_patient_example();
         api_base.create("Patient", &data).expect("failed to insert example patient record");
         *self.initialized.borrow_mut() = true;

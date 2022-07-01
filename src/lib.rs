@@ -19,6 +19,7 @@ mod search;
 pub mod rapath;
 pub mod importer;
 pub mod api;
+pub mod config;
 
 pub fn configure_log4rs() {
     // below check makes this method to be called from multiple locations

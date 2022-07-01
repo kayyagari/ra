@@ -24,7 +24,8 @@ use crate::search::filter_converter::param_to_filter;
 
 pub struct ApiBase {
     pub(crate) db: Barn,
-    pub(crate) schema: SchemaDef
+    pub(crate) schema: SchemaDef,
+    pub(crate) base_url: String
 }
 
 pub enum RaResponse {
@@ -188,9 +189,9 @@ impl OperationOutcome {
 }
 
 impl ApiBase {
-    pub fn new(db: Barn) -> Result<Self, RaError> {
+    pub fn new(db: Barn, base_url: String) -> Result<Self, RaError> {
         let schema = db.build_schema_def()?;
-        Ok(ApiBase{db, schema})
+        Ok(ApiBase{db, schema, base_url})
     }
 
     fn transaction(&self, val: Value) -> Result<RaResponse, RaError> {
@@ -345,7 +346,7 @@ mod tests {
         std::fs::remove_dir_all(&path);
         let barn = Barn::open_with_default_schema(&path)?;
 
-        let gateway = ApiBase::new(barn)?;
+        let gateway = ApiBase::new(barn, String::from(""))?;
 
         let f = File::open("test_data/resources/bundle-example.json").unwrap();
         let val: Value = serde_json::from_reader(f).unwrap();
