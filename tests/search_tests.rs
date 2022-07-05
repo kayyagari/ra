@@ -11,6 +11,11 @@ fn test_query() {
     let tc = TestContainer::new();
     let r = tc.create_server_with_example_patient();
     let client = Client::tracked(r).expect("create a HTTP client");
+
+    let resp = client.get("/metadata").dispatch();
+    assert_eq!(200, resp.status().code);
+    //let resp_val = resp.into_json::<Value>().unwrap();
+
     let resp = client.get("/Patient?name=Windsor").dispatch();
     assert_eq!(200, resp.status().code);
     let resp_val = resp.into_json::<Value>().unwrap();

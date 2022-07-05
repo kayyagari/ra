@@ -260,7 +260,7 @@ mod tests {
         let v: Value = serde_json::from_reader(f).unwrap();
         let mut sd = parse_res_def(&v).unwrap();
 
-        let doc = doc!{"id": "id", "base":["Patient"],"code":"family","expression":"Patient.name.family","type":"string"};
+        let doc = doc!{"id": "id", "name": "family", "url": "http://localhost/base/Patient-family", "base":["Patient"],"code":"family","expression":"Patient.name.family","type":"string"};
         let spd = parse_search_param(&doc, &sd).unwrap();
         let spd_id = spd.id;
         sd.add_search_param(spd);

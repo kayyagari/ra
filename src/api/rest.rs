@@ -263,7 +263,12 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for RaResponse {
 
                 resp.ok()
             },
-            RaResponse::Success => {
+            RaResponse::Success(doc) => {
+                if let Some(doc) = doc {
+                    let buf = serde_json::to_vec(&doc).unwrap();
+                    resp.sized_body(buf.len(), Cursor::new(buf));
+                }
+
                 resp.status(Status::Ok)
                     .ok()
             },
@@ -291,7 +296,7 @@ pub fn mount(api_base: ApiBase, config: Config) -> Result<Rocket<Build>, anyhow:
         log_mdc::insert("request_id", uuid::Uuid::new_v4().to_string());
     }
     )));
-    Ok(server.mount(base, routes![create, bundle, search]))
+    Ok(server.mount(base, routes![create, bundle, search, metadata]))
 }
 
 fn parse_input(d: &[u8]) -> Result<Value, RaError> {
@@ -318,4 +323,10 @@ pub fn bundle(data: &[u8], hints: &ResponseHints, base: &State<ApiBase>) -> Resu
 pub fn search(res_name: &str, query: SearchQuery, hints: &ResponseHints, base: &State<ApiBase>) -> Result<RaResponse, RaError> {
     debug!("{:?}", query);
     base.search_query(res_name, &query, hints)
+}
+
+#[get("/metadata")]
+pub fn metadata(base: &State<ApiBase>) -> Result<RaResponse, RaError> {
+    debug!("returning CapabilityStatement for metadata request");
+    base.generate_capability_statement()
 }

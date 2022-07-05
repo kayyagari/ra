@@ -1,6 +1,6 @@
 use crate::res_schema::PropertyDef;
 use std::error::Error;
-use std::fmt::{Display, format, Formatter};
+use std::fmt::{Display, format, Formatter, Write};
 use crate::dtypes::DataType;
 use chrono::{DateTime, Utc};
 use crate::errors::{ParseError, RaError};
@@ -69,6 +69,43 @@ impl SearchParamType {
             "special" => Ok(Special),
             _ => Err(RaError::SearchParamParsingError(format!("unknown search parameter type {}", name)))
         }
+    }
+}
+
+impl ToString for SearchParamType {
+    fn to_string(&self) -> String {
+        use SearchParamType::*;
+        let s;
+        match self {
+            Number => {
+                s = "number";
+            },
+            Date => {
+                s = "date";
+            },
+            String => {
+                s = "string";
+            },
+            Token => {
+                s = "token";
+            },
+            Reference => {
+                s = "reference";
+            },
+            Composite => {
+                s = "composite";
+            },
+            Quantity => {
+                s = "quantity";
+            },
+            Uri => {
+                s = "uri";
+            },
+            Special => {
+                s = "special";
+            }
+        }
+        s.to_string()
     }
 }
 

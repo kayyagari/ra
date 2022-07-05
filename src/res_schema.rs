@@ -23,7 +23,8 @@ pub struct SchemaDef {
     pub resources: HashMap<String, ResourceDef>,
     pub search_params: HashMap<u32, SearchParamDef>,
     search_params_by_res_name: HashMap<String, HashMap<String, u32>>,
-    schema: JSONSchema
+    schema: JSONSchema,
+    fhir_version: String
 }
 
 pub struct ResourceDef {
@@ -46,6 +47,8 @@ pub struct SearchParamDef {
     // using an integer generated from ksuid to make the cloning cheap
     // and use less memory, this is NOT "hash" of the search parameter
     pub id: u32,
+    pub name: String, // storing for the sake of CapabilityStatement
+    pub url: String, // storing for the sake of CapabilityStatement
     pub code: String,
     pub param_type: SearchParamType,
     // storing the expressions in string form instead of Ast. Ast requires
@@ -205,6 +208,11 @@ impl SchemaDef {
         }
         "unknown resource"
     }
+
+    #[inline]
+    pub fn get_fhir_version(&self) -> &str {
+        self.fhir_version.as_str()
+    }
 }
 
 pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
@@ -213,6 +221,17 @@ pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
     if let Err(e) = jschema {
         warn!("{}", e.to_string());
         return Err(RaError::SchemaParsingError(e.to_string()));
+    }
+
+    let fhirId = schema_doc.get("id");
+    let mut fhir_version = String::from("unknown");
+    if let Some(s) = fhirId {
+        let s = s.as_str();
+        if let Some(s) = s {
+            if let Some(v) = s.strip_prefix("http://hl7.org/fhir/json-schema/") {
+                fhir_version = v.to_string();
+            }
+        }
     }
 
     let prop_name = schema_doc.pointer("/discriminator/propertyName");
@@ -277,7 +296,7 @@ pub fn parse_res_def(schema_doc: &Value) -> Result<SchemaDef, RaError> {
     }
 
     let s = SchemaDef { props: global_props, resources: resource_defs, schema: jschema.unwrap(),
-                        search_params: HashMap::new(), search_params_by_res_name: HashMap::new() };
+                        search_params: HashMap::new(), search_params_by_res_name: HashMap::new(), fhir_version };
     Ok(s)
 }
 
@@ -362,6 +381,8 @@ fn parse_single_prop_def(name: &String, pdef_json: &serde_json::map::Map<String,
 
 pub fn parse_search_param(param_value: &Document, sd: &SchemaDef) -> Result<SearchParamDef, RaError> {
     let id = param_value.get_str("id")?;
+    let name = param_value.get_str("name")?;
+    let url = param_value.get_str("url")?;
     let code = param_value.get_str("code")?;
     let ptype = param_value.get_str("type")?;
     let ptype = SearchParamType::from(ptype)?;
@@ -446,7 +467,8 @@ pub fn parse_search_param(param_value: &Document, sd: &SchemaDef) -> Result<Sear
     let spd = SearchParamDef { id, code: code.to_string(),
         param_type: ptype,
         components, expressions: res_expr_map, multiple_or, multiple_and,
-        targets: target_resources
+        targets: target_resources,
+        name: name.to_string(), url: url.to_string()
     };
 
     Ok(spd)
@@ -753,7 +775,7 @@ mod tests {
         let v: Value = serde_json::from_reader(f).unwrap();
         let sd = parse_res_def(&v).unwrap();
 
-        let doc = doc!{"id": "id1", "code":"_text","base":["DomainResource"],"type":"string"};
+        let doc = doc!{"id": "id1", "name": "_text_param", "url": "http://localhost/base-text-param", "code":"_text","base":["DomainResource"],"type":"string"};
         let spd = parse_search_param(&doc, &sd).unwrap();
         assert_eq!("_text", &spd.code);
         assert_eq!(true, spd.multiple_or);
@@ -763,7 +785,7 @@ mod tests {
         assert_eq!(SearchParamType::String, spd.param_type);
         assert_eq!(None, *spd.expressions.get("DomainResource").unwrap());
 
-        let doc = doc!{"id": "id2", "code":"code","base":["AllergyIntolerance","Condition"],"type":"token","expression":"AllergyIntolerance.code | AllergyIntolerance.reaction.substance | Condition.code"};
+        let doc = doc!{"id": "id2", "name": "code_param", "url": "http://localhost/base-code-param", "code":"code","base":["AllergyIntolerance","Condition"],"type":"token","expression":"AllergyIntolerance.code | AllergyIntolerance.reaction.substance | Condition.code"};
         let spd = parse_search_param(&doc, &sd).unwrap();
         assert_eq!("code", &spd.code);
         assert_eq!(String::from("AllergyIntolerance.code | AllergyIntolerance.reaction.substance"), spd.expressions.get("AllergyIntolerance").unwrap().as_ref().unwrap().expr);

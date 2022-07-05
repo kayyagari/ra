@@ -11,6 +11,7 @@ use rocket::Request;
 
 use crate::api::bundle;
 use crate::api::bundle::{BundleType, Method, RequestBundle, SearchSet};
+use crate::api::capability::gen_capability_stmt;
 use crate::barn::Barn;
 use crate::errors::{EvalError, IssueSeverity, IssueType, RaError};
 use crate::rapath::expr::Ast;
@@ -29,7 +30,7 @@ pub struct ApiBase {
 }
 
 pub enum RaResponse {
-    Success,
+    Success(Option<Document>),
     Created(Document),
     SearchResult(SearchSet)
 }
@@ -236,7 +237,7 @@ impl ApiBase {
             }
             self.db.save_batch(wb)?;
         }
-        Ok(RaResponse::Success)
+        Ok(RaResponse::Success(None))
     }
 
     pub fn create(&self, res_name: &str, val: &Value) -> Result<RaResponse, RaError> {
@@ -318,6 +319,11 @@ impl ApiBase {
     pub fn search(&self, rd: &ResourceDef, filter: &Ast) -> Result<RaResponse, RaError> {
         let result = self.db.search(rd, filter)?;
         Ok(RaResponse::SearchResult(result))
+    }
+
+    pub fn generate_capability_statement(&self) -> Result<RaResponse, RaError> {
+        let cs = gen_capability_stmt(&self.schema, &self.base_url);
+        Ok(RaResponse::Success(Some(cs)))
     }
 
     fn get_res_def(&self, d: &Document) -> Result<&ResourceDef, RaError>{

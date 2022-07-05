@@ -29,3 +29,15 @@ pub fn prefix_id(prefix: &[u8], ksid: &[u8]) -> [u8; 24]{
 
     tmp
 }
+
+#[cfg(test)]
+mod tests {
+    use ksuid::Ksuid;
+
+    // a test function to generate the Ksuid
+    #[test]
+    fn generate_ksuid() {
+        let id = Ksuid::generate();
+        println!("{}", id.to_base62());
+    }
+}
