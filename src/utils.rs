@@ -5,6 +5,7 @@ pub mod test_utils;
 pub mod bson_utils;
 pub mod resources;
 pub mod validator;
+pub mod norm_utils;
 
 pub fn u32_from_le_bytes(b: &[u8]) -> u32 {
     let mut d : u32 = 0;

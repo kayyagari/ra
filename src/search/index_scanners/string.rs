@@ -321,6 +321,7 @@ mod tests {
         let (db, sd) = tc.setup_db_with_example_patient()?;
         let mut candidates = vec![];
         candidates.push(("name eq \"James\"", 1));
+        candidates.push(("name eq \"Ai9\"", 1)); // a value formed after applying NFKD on unicode string "Åi₉"
         candidates.push(("name eq \"james\"", 1));
         candidates.push(("name:exact eq \"james\"", 0));
         candidates.push(("name sw \"Jam\"", 1));

@@ -18,6 +18,7 @@ use crate::res_schema::{SchemaDef, SearchParamDef, SearchParamExpr};
 use crate::ResourceDef;
 use crate::search::SearchParamType;
 use crate::utils::bson_utils;
+use crate::utils::norm_utils::remove_diacritics_and_multi_spaces;
 
 impl Barn {
     pub fn insert_batch(&self, ksid: &Ksuid, res_def: &ResourceDef, mut data: Document, wb: &mut WriteBatch, sd: &SchemaDef, skip_indexing: bool) -> Result<(Document, Vec<u8>, [u8; 24]), RaError> {
@@ -153,8 +154,10 @@ fn format_index_row(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &Se
         SearchParamType::String => {
             if let SystemType::String(s) = expr_result {
                 key.push(1);
-                key.extend_from_slice(s.as_str().to_lowercase().as_bytes()); // key always holds the lowercase value
-                value.extend_from_slice(s.as_str().as_bytes()); // value will contain the string as is
+                let s = s.as_str();
+                let norm_val = remove_diacritics_and_multi_spaces(s);
+                key.extend_from_slice(norm_val.to_lowercase().as_bytes()); // key always holds the lowercase value
+                value.extend_from_slice(s.as_bytes()); // value will contain the string as is
             }
         },
         SearchParamType::Number => {
