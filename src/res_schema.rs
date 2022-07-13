@@ -64,7 +64,8 @@ pub struct SearchParamDef {
 #[derive(Debug, PartialEq, Eq)]
 pub struct SearchParamExpr {
     pub hash: [u8;4], // this is the CRC hash of Resource's name + "_" + search param's code
-    pub expr: String
+    pub expr: String,
+    pub prop_type: Option<DataType> // the type of the property that is being indexed e.g HumanName for Patient.name
 }
 
 #[derive(Debug)]
@@ -86,17 +87,34 @@ pub struct ReferenceValue {
     pub version: u32
 }
 
+impl SearchParamExpr {
+    pub fn new(sd: &SchemaDef, res_name: &str, expr: String, hash: [u8; 4]) -> Self {
+        let mut prop_path = expr.as_str();
+        if let Some(dot_path) = expr.strip_prefix(res_name) {
+            if dot_path.len() > 1 {
+                prop_path = &dot_path[1..];
+            }
+        }
+        let mut prop_type = None;
+        let prop = sd.get_prop(res_name, prop_path);
+        if let Some(prop) = prop {
+            prop_type = Some(prop.dtype);
+        }
+
+        SearchParamExpr{expr, hash, prop_type}
+    }
+}
 impl SchemaDef {
-    pub fn get_prop(&self, res_name: &String, at_path: &String) -> Option<&Box<PropertyDef>> {
-        let res = self.resources.get(res_name);
+    pub fn get_prop<S: AsRef<str>>(&self, res_name: S, at_path: S) -> Option<&Box<PropertyDef>> {
+        let res = self.resources.get(res_name.as_ref());
         if res.is_none() {
-            debug!("no resource definition exists with the name {}", res_name);
+            debug!("no resource definition exists with the name {}", res_name.as_ref());
             return Option::None;
         }
 
         let res = res.unwrap();
 
-        let mut path_parts = at_path.split(".");
+        let mut path_parts = at_path.as_ref().split(".");
         let mut prop: Option<&Box<PropertyDef>> = Option::None;
         let first = path_parts.next();
         if let Some(f) = first {
@@ -410,7 +428,8 @@ pub fn parse_search_param(param_value: &Document, sd: &SchemaDef) -> Result<Sear
             let e = e.as_str().unwrap();
             let _ = parse_search_param_expression(e, code, sd)?; // validating the expression
             let hash = get_crc_hash(format!("{}_{}", res_name, code));
-            let search_expr = SearchParamExpr{expr: e.to_string(), hash};
+
+            let search_expr = SearchParamExpr::new(sd, res_name, e.to_string(), hash);
             res_expr_map.insert(res_name.to_string(), Some(search_expr));
         }
     }
@@ -438,7 +457,7 @@ pub fn parse_search_param(param_value: &Document, sd: &SchemaDef) -> Result<Sear
                             }
                             else {
                                 let hash = get_crc_hash(format!("{}_{}", res_name, code));
-                                let search_expr = SearchParamExpr{expr: se.to_string(), hash};
+                                let search_expr = SearchParamExpr::new(sd, res_name, se.to_string(), hash);
                                 res_expr_map.insert(res_name.to_string(), Some(search_expr));
                             }
                         }

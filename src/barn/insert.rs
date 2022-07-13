@@ -8,6 +8,7 @@ use log::{debug, trace};
 use rawbson::elem::Element;
 use rocksdb::WriteBatch;
 use crate::barn::{Barn, CF_INDEX, ResolvableContext};
+use crate::dtypes::DataType;
 use crate::errors::{EvalError, RaError};
 use crate::rapath::element_utils;
 use crate::rapath::engine::eval;
@@ -117,7 +118,7 @@ fn format_index_rows(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &S
         SystemType::Element(e) => {
             if spd.param_type == SearchParamType::String {
                 let mut strings = Vec::new();
-                element_utils::gather_string_values(e, &mut strings)?;
+                element_utils::gather_string_values(e, expr.prop_type, &mut strings)?;
                 for s in strings {
                     let str_result = Rc::new(SystemType::String(SystemString::from_slice(s)));
                     let r = format_index_row(str_result, spd, expr, sd, pk)?;

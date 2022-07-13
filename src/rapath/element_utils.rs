@@ -6,6 +6,7 @@ use crate::rapath::EvalResult;
 use crate::rapath::stypes::{SystemNumber, SystemString, SystemType, Collection, SystemTypeType};
 use log::{debug, error};
 use rawbson::RawError;
+use crate::dtypes::DataType;
 
 pub fn to_systype(el: Element) -> Option<SystemType> {
     match el.element_type() {
@@ -340,13 +341,38 @@ pub fn get_attribute_to_cast_to<'b>(base: Rc<SystemType<'b>>, at_name: &str, at_
 /// gathers all the string values, including from the nested elements
 // l = long
 // s = short
-pub fn gather_string_values<'l, 's>(el: &'l Element<'s>, values: &mut Vec<&'s str>) -> Result<(), EvalError> {
+pub fn gather_string_values<'l, 's>(el: &'l Element<'s>, dt: Option<DataType>, values: &mut Vec<&'s str>) -> Result<(), EvalError> {
+    match el.element_type() {
+        ElementType::EmbeddedDocument => {
+            let doc = el.as_document()?;
+            for item in doc {
+                if let Ok((key, item)) = item {
+                    if let Some(dt) = dt {
+                        if dt == DataType::HUMANNAME || dt == DataType::ADDRESS {
+                            if key == "period" || key == "use" {
+                                continue;
+                            }
+                        }
+                    }
+                    _gather_string_values(&item, values)?;
+                }
+            }
+        },
+        _ => {
+            _gather_string_values(el, values)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn _gather_string_values<'l, 's>(el: &'l Element<'s>, values: &mut Vec<&'s str>) -> Result<(), EvalError> {
     match el.element_type() {
         ElementType::EmbeddedDocument => {
             let doc = el.as_document()?;
             for item in doc {
                 if let Ok((_, item)) = item {
-                    gather_string_values(&item, values);
+                    _gather_string_values(&item, values);
                 }
             }
         },
@@ -354,7 +380,7 @@ pub fn gather_string_values<'l, 's>(el: &'l Element<'s>, values: &mut Vec<&'s st
             let arr = el.as_array()?;
             for item in arr {
                 if let Ok(item) = item {
-                    gather_string_values(&item, values);
+                    _gather_string_values(&item, values);
                 }
             }
         },
@@ -379,20 +405,26 @@ mod tests {
         let doc = doc!{"use":"official","family":"A","given":["Kanth"], "number": 2};
         let doc = DocBuf::from_document(&doc);
         let el = Element::new(ElementType::EmbeddedDocument, doc.as_bytes());
-        let mut actual_values = Vec::new();
-        gather_string_values(&el, &mut actual_values).unwrap(); // unwrapping to catch error
 
-        let expected_values = vec!["official", "A", "Kanth"];
-        assert_eq!(expected_values.len(), actual_values.len());
-        for e in expected_values {
-            let mut found = false;
-            for a in &actual_values {
-                if e == *a {
-                    found = true;
-                    break;
+        let mut candidates = Vec::new();
+        candidates.push((Some(DataType::HUMANNAME), vec!["A", "Kanth"]));
+        candidates.push((Some(DataType::ADDRESS), vec!["A", "Kanth"]));
+        candidates.push((None, vec!["official", "A", "Kanth"]));
+
+        for (dt, expected_values) in candidates {
+            let mut actual_values = Vec::new();
+            gather_string_values(&el, dt, &mut actual_values).unwrap(); // unwrapping to catch error
+            assert_eq!(expected_values.len(), actual_values.len());
+            for e in expected_values {
+                let mut found = false;
+                for a in &actual_values {
+                    if e == *a {
+                        found = true;
+                        break;
+                    }
                 }
+                assert!(found);
             }
-            assert!(found);
         }
     }
 }
