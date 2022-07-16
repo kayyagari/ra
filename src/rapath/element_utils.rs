@@ -5,7 +5,7 @@ use crate::errors::{EvalError, RaError};
 use crate::rapath::EvalResult;
 use crate::rapath::stypes::{SystemNumber, SystemString, SystemType, Collection, SystemTypeType};
 use log::{debug, error};
-use rawbson::RawError;
+use rawbson::{Doc, RawError};
 use crate::dtypes::DataType;
 
 pub fn to_systype(el: Element) -> Option<SystemType> {
@@ -394,6 +394,31 @@ fn _gather_string_values<'l, 's>(el: &'l Element<'s>, values: &mut Vec<&'s str>)
     Ok(())
 }
 
+pub fn gather_system_and_code<'i>(el: &'i Element) -> Result<(Option<&'i str>, Option<&'i str>), EvalError> {
+    let mut system = None;
+    let mut code = None;
+
+    if el.element_type() == ElementType::EmbeddedDocument {
+        let doc = el.as_document()?;
+        system = get_str_val(doc, "system");
+        code = get_str_val(doc, "code");
+        if let None = code {
+            code = get_str_val(doc, "value");
+        }
+    }
+
+    Ok((system, code))
+}
+
+fn get_str_val<'i>(doc: &'i Doc, name: &str) -> Option<&'i str> {
+    let el = doc.get_str(name);
+    if let Ok(el) = el {
+        if let Some(el) = el {
+            return Some(el);
+        }
+    }
+    None
+}
 #[cfg(test)]
 mod tests {
     use bson::doc;

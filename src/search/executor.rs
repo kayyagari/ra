@@ -22,6 +22,7 @@ use crate::search::index_scanners::and_or::AndOrIndexScanner;
 use crate::search::index_scanners::not::NotIndexScanner;
 use crate::search::index_scanners::reference::{ChainedParam, ReferenceChainIndexScanner};
 use crate::search::index_scanners::string::StringIndexScanner;
+use crate::search::index_scanners::token::TokenIndexScanner;
 
 lazy_static! {
     static ref HTTP_RE: Regex = Regex::new(r"(?i)^((http|https)://)").unwrap();
@@ -110,6 +111,11 @@ pub fn create_index_scanner<'f>(name: &'f str, value: &'f str, operator: &'f Com
         SearchParamType::String => {
             let itr = db.new_index_iter(&sp_expr.hash);
             let tmp = StringIndexScanner::new(value, itr, operator, &sp_expr.hash, modifier);
+            idx_scanner = Box::new(tmp);
+        },
+        SearchParamType::Token => {
+            let itr = db.new_index_iter(&sp_expr.hash);
+            let tmp = TokenIndexScanner::new(value, itr, &sp_expr.hash, modifier);
             idx_scanner = Box::new(tmp);
         },
         SearchParamType::Reference => {

@@ -11,6 +11,7 @@ use crate::barn::{Barn, CF_INDEX, ResolvableContext};
 use crate::dtypes::DataType;
 use crate::errors::{EvalError, RaError};
 use crate::rapath::element_utils;
+use crate::rapath::element_utils::gather_system_and_code;
 use crate::rapath::engine::eval;
 use crate::rapath::parser::{parse, parse_with_schema};
 use crate::rapath::scanner::scan_tokens;
@@ -178,8 +179,41 @@ fn format_index_row(expr_result: Rc<SystemType>, spd: &SearchParamDef, expr: &Se
         //     if let SystemType::Quantity(sq) = expr_result {
         //     }
         // },
-        // SearchParamType::Token => {
-        // },
+        SearchParamType::Token => {
+            if let SystemType::Element(e) = expr_result {
+                let (system, code) = gather_system_and_code(e)?;
+                let mut has_val = 1;
+                if let None = system {
+                    if let None = code {
+                        has_val = 0;
+                    }
+                }
+                key.push(has_val);
+                if has_val == 1 {
+                    if let Some(system) = system {
+                        let data = system.as_bytes();
+                        let data_len = data.len() as u32;
+                        key.extend_from_slice(&data_len.to_le_bytes());
+                        key.extend_from_slice(data);
+                    }
+                    else {
+                        let data_len: u32 = 0;
+                        key.extend_from_slice(&data_len.to_le_bytes());
+                    }
+
+                    if let Some(code) = code {
+                        let data = code.as_bytes();
+                        let data_len = data.len() as u32;
+                        key.extend_from_slice(&data_len.to_le_bytes());
+                        key.extend_from_slice(data);
+                    }
+                    else {
+                        let data_len: u32 = 0;
+                        key.extend_from_slice(&data_len.to_le_bytes());
+                    }
+                }
+            }
+        },
         SearchParamType::Reference => {
             if let SystemType::Element(e) = expr_result {
                 let ref_id_and_version = get_reference_val_from(e, sd)?;

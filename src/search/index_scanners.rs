@@ -10,6 +10,7 @@ pub mod string;
 pub mod and_or;
 pub mod not;
 pub mod reference;
+pub mod token;
 
 pub type SelectedResourceKey = Result<Option<[u8; 24]>, EvalError>;
 
