@@ -48,44 +48,6 @@ impl<'f, 'd: 'f> StringIndexScanner<'f, 'd> {
 }
 
 impl<'f, 'd: 'f> IndexScanner<'f> for StringIndexScanner<'f, 'd> {
-    fn next(&mut self) -> SelectedResourceKey {
-        let mut res_key = None;
-
-        if !self.eof {
-            loop {
-                let row = self.itr.next();
-                if let None = row {
-                    break;
-                }
-                let row = row.unwrap();
-                let row_prefix = &row.0[..4];
-                if row_prefix != self.index_prefix {
-                    self.eof = true;
-                    break;
-                }
-
-                let pos = row.0.len() - 24;
-                let hasVal = row.0[4] == 1;
-                let mut norm_val_in_key = None;
-                if hasVal {
-                    norm_val_in_key = Some(&row.0[5..pos]);
-                }
-                let r = self.cmp_value(norm_val_in_key, row.1.as_ref());
-                if r {
-                    let mut tmp: [u8; 24] = [0; 24];
-                    tmp.copy_from_slice(&row.0[pos..]);
-                    res_key = Some(tmp);
-                    break;
-                }
-                if self.eof {
-                    break;
-                }
-            }
-        }
-
-        Ok(res_key)
-    }
-
     fn collect_all(&mut self) -> HashMap<[u8; 24], bool> {
         let mut res_keys = HashMap::new();
         if self.eof {

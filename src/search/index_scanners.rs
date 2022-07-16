@@ -14,7 +14,6 @@ pub mod reference;
 pub type SelectedResourceKey = Result<Option<[u8; 24]>, EvalError>;
 
 pub trait IndexScanner<'f> {
-    fn next(&mut self) -> SelectedResourceKey;
     fn collect_all(&mut self) -> HashMap<[u8; 24], bool>;
     fn chained_search(&mut self, res_pks: &mut HashMap<[u8; 24], [u8; 24]>, sd: &SchemaDef, db: &'f Barn) -> Result<HashMap<[u8;4], HashMap<[u8; 24], [u8; 24]>>, EvalError> {
         Ok(HashMap::new())

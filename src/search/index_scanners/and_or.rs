@@ -18,10 +18,6 @@ impl<'f> AndOrIndexScanner<'f> {
 }
 
 impl<'f> IndexScanner<'f> for AndOrIndexScanner<'f> {
-    fn next(&mut self) -> SelectedResourceKey {
-        todo!()
-    }
-
     fn collect_all(&mut self) -> HashMap<[u8; 24], bool> {
         let mut keys;
         if self.and {

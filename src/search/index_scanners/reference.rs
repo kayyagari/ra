@@ -69,10 +69,6 @@ pub fn new_reference_chain_scanner<'f>(chain: Rc<ChainedParam<'f>>, ref_type: Op
 }
 
 impl<'f, 'd: 'f> IndexScanner<'f> for ReferenceIndexScanner<'f, 'd> {
-    fn next(&mut self) -> SelectedResourceKey {
-        todo!()
-    }
-
     fn collect_all(&mut self) -> HashMap<[u8; 24], bool> {
         let mut res_keys = HashMap::new();
         loop {
@@ -142,10 +138,6 @@ impl<'f> ReferenceIdIndexScanner<'f> {
 }
 
 impl<'f> IndexScanner<'f> for ReferenceIdIndexScanner<'f> {
-    fn next(&mut self) -> SelectedResourceKey {
-        todo!()
-    }
-
     fn collect_all(&mut self) -> HashMap<[u8; 24], bool> {
         let mut res_keys = HashMap::new();
         loop {
@@ -265,10 +257,6 @@ fn chained_search<'f>(chain: &Rc<ChainedParam<'f>>, res_pks: &mut HashMap<[u8;4]
 }
 
 impl <'f> IndexScanner<'f> for ReferenceChainIndexScanner<'f> {
-    fn next(&mut self) -> SelectedResourceKey {
-        todo!()
-    }
-
     fn collect_all(&mut self) -> HashMap<[u8; 24], bool> {
         let mut res_keys = HashMap::new();
         let batch_size: u32 = 100_000; // TODO should be made configurable

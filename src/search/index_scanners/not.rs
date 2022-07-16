@@ -16,10 +16,6 @@ impl<'f> NotIndexScanner<'f> {
 }
 
 impl<'f> IndexScanner<'f> for NotIndexScanner<'f> {
-    fn next(&mut self) -> SelectedResourceKey {
-        todo!()
-    }
-
     fn collect_all(&mut self) -> HashMap<[u8; 24], bool> {
         todo!()
     }
